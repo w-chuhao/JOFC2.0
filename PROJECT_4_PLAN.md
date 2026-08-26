@@ -1,84 +1,177 @@
-# Project 4: Shopping Copilot - Project Plan
+# Final Plan - TechJam Conversational E-Commerce Search
 
-## One-sentence summary
+## The goal in plain English
 
-Build an in-memory conversational shopping agent for the 50,000-item Amazon Clothing, Shoes and Jewelry catalog. It should distinguish high-intent buying requests from exploratory browsing, retrieve products through multiple routes, remember and revise user constraints across turns, and return the correct eventual purchase in as few turns as possible.
+You are building a shopping assistant, not a website and not a general chatbot. It receives a customer message such as "I need lightweight earrings for a wedding" and must recommend up to ten products from the provided 50,000-product catalog.
 
-## What the challenge requires
+The organiser secretly knows the one product the customer eventually bought. Your score improves when that exact product's `parent_asin` appears in your Top 10, especially on an early turn. You get at most ten turns.
 
-The organiser supplies a Python starter agent, a fixed catalog, 200 labelled development sessions, and a deterministic local evaluator. The hidden final set contains 800 separate sessions. Our agent must follow the published Python interface and be evaluated headlessly; a web UI is out of scope.
+The only file you need to change for the competition is `starter/agent.py`. The evaluator imports `Agent` from that file and runs it against 200 public practice sessions. Do not edit the evaluator, catalog, or public labels.
 
-The central requirements are:
+## What a product is
 
-- Route each utterance into a **Buying** track (hard constraints such as category, price, colour, size, brand) or a **Browsing** track (open-ended needs such as occasion, style, or use case).
-- Use an in-memory hybrid retrieval pipeline: keyword, category/metadata, and vector/semantic retrieval, followed by semantic ranking.
-- Keep multi-turn state: add constraints when the user gives more information, and remove/replace stale constraints when they change their mind.
-- When a request is too broad, avoid an unhelpful huge retrieval and ask a targeted clarification question.
-- Optimise for Hit Rate@10, MRR, Top-K hit rate, efficiency, and MTTC (mean turns to conversion).
+Each catalog line is one product. You use text fields such as `title`, `features`, `description`, `categories`, `details`, and `store` to find matching products. You return only product IDs:
 
-## Proposed solution: `RouteWise`
-
-`RouteWise` is a lightweight, reproducible hybrid shopping agent with no dependency on paid model APIs.
-
-1. **Intent router** - a deterministic rules-and-score router detects Buying, Browsing, clarification, and override turns. It is transparent, easy to debug, and avoids sacrificing time to train a bespoke classifier.
-2. **Conversation state machine** - maintains slots for category, gender/audience, brand, colour, size, price, material, occasion, and style. New facts merge into state; explicit negations or replacements clear the affected slot.
-3. **Dual retrieval** -
-   - Buying: metadata/category filters plus BM25, prioritising hard-constraint satisfaction.
-   - Browsing: BM25 plus local dense embeddings; diversified candidates prevent near-duplicate results.
-4. **Hybrid reranker** - a weighted, explainable score combines lexical match, semantic similarity, category fit, slot satisfaction, and a modest diversity penalty. Weights are tuned only on the 200 public sessions.
-5. **Clarification policy** - if the query/state produces a very large or weakly differentiated candidate set, ask one high-information question (for example category, audience, budget, or occasion). Never exceed the hard limit of 10 turns.
-
-This is deliberately scoped for a strong working submission: it satisfies all four pillars without a heavy vector database, full LLM fine-tuning, or a UI.
-
-## Technical shape
-
-```text
-User utterance
-  -> intent + override detector
-  -> state update / slot reset
-  -> clarification decision OR retrieval
-       Buying: filters + BM25
-       Browsing: BM25 + local dense search + diversity
-  -> hybrid reranker
-  -> official agent response
-  -> local evaluator
+```python
+{"parent_asin": "B07K34RX5J"}
 ```
 
-Suggested stack: Python, the supplied starter kit/evaluator, pandas or Polars for catalog loading, scikit-learn/rank-bm25 for lexical retrieval, sentence-transformers plus NumPy for local dense retrieval, and pytest. Cache embeddings locally; do not commit downloaded models, data, credentials, or generated cache files.
+You never know the hidden target ID during a session. Your job is to rank likely matches using what the customer has told you.
+
+## What the agent does on every turn
+
+```text
+Customer message + remembered preferences
+        |
+        v
+1. Extract useful facts
+   "black leather ankle boots under $80"
+   -> colour=black, material=leather, category=boots, budget=80
+        |
+        v
+2. Update or replace the session state
+   "Actually, not boots - I need sandals"
+   -> remove category=boots; set category=sandals
+        |
+        v
+3. Search the catalog
+   BM25 keyword search + category/attribute filtering
+        |
+        v
+4. Rank the candidates
+   Products matching more important facts rank higher
+        |
+        v
+5. Respond
+   Return up to 10 valid parent_asin IDs and, if useful,
+   ask exactly one focused clarification question.
+```
+
+Always return recommendations, even when asking a question. A correct recommendation on turn 1 ends the session early and earns a better score.
+
+## The version we should build first
+
+Build a strong, local, deterministic agent before adding any LLM. It is free, testable, and much less risky before Tuesday.
+
+### Part A - Keep and improve the existing BM25 search
+
+The starter already creates an in-memory SQLite FTS5 index and performs BM25 keyword search. Keep it. Person 1 will turn the current SQL query into a reusable search function.
+
+It should search the title, features, descriptions, categories, details, and store. Give title/categories more weight than long descriptions, and use the customer's latest message plus remembered constraints as the query.
+
+### Part B - Remember the conversation
+
+For each `session_id`, save a small dictionary called state:
+
+```python
+{
+    "profile": user_profile,
+    "constraints": {
+        "category": "earrings",
+        "material": "stainless steel",
+        "color": "black",
+        "budget": 40,
+        "use_case": "wedding"
+    },
+    "history": ["..."]
+}
+```
+
+Start with straightforward keyword/rule extraction. It does not have to understand every English sentence perfectly. The main value is remembering information the evaluator gives after you ask a valid question.
+
+### Part C - Ask useful questions
+
+If the user is broad, ask for the one piece of information most likely to narrow the search. For example:
+
+| What is missing? | Ask attribute | Example question |
+|---|---|---|
+| Product type | `category` | "What type of item are you looking for?" |
+| Material | `material` | "Do you have a preferred material?" |
+| Colour | `color` | "Is there a colour you would prefer?" |
+| Budget | `budget` | "What price range works for you?" |
+| Occasion | `use_case` | "What will you be using it for?" |
+
+`ask_attribute` must be one of the values allowed by the contract: `category`, `material`, `color`, `size`, `style`, `brand`, `budget`, `feature`, `use_case`, `other`, or `null`.
+
+### Part D - Handle a change of mind
+
+The evaluator includes Intent Override sessions. Detect words such as "actually", "instead", "ignore", "not", and "rather". When a customer replaces a preference, remove the old value rather than adding both values. Example: "Actually, ignore the red dress; I want black shoes" means old dress/red constraints must not dominate later ranking.
+
+### Part E - Rank better than raw BM25
+
+After BM25 returns candidates, add simple extra points for facts that match the remembered state. Example scoring:
+
+```text
+BM25 score                       -> base relevance
++ category match                 -> strong bonus
++ explicitly requested material  -> strong bonus
++ colour, brand, size, use case  -> smaller bonuses
+- clearly conflicting feature    -> penalty
+```
+
+Keep this transparent and tune its weights only by running the public evaluator. This is your first complete solution.
+
+## Optional improvement: semantic search or an LLM
+
+Only consider this after the deterministic version works and is merged.
+
+- **Semantic search:** make a local embedding for each product and the customer query, compare them with cosine similarity, and combine the best semantic candidates with BM25 candidates. Keep everything in memory; do not build PostgreSQL or pgvector.
+- **LLM:** optionally use one to extract structured constraints or rerank a small list of candidates. It cannot replace catalog retrieval. It requires your own key, cost/latency/token reporting, and a reliable no-LLM fallback.
+
+Neither is required to submit a strong project. Do not add either if it risks the working baseline.
+
+## File structure you should aim for
+
+You may keep all code in `starter/agent.py` initially. Once it works, small helper files make ownership clearer:
+
+```text
+starter/
+  agent.py        # required Agent interface and orchestration
+  retrieval.py    # Person 1: BM25, filters, ranking
+  state.py        # Person 2: constraints, overrides, questions
+tests/
+  test_agent.py   # key behaviour tests
+```
+
+`agent.py` must remain the entry point because the evaluator imports it.
+
+## How to measure progress
+
+Run this after every meaningful integrated change:
+
+```powershell
+python -m evaluator.local_evaluator
+```
+
+Read `results.json` and record:
+
+- **Hit Rate@10:** how many sessions find the target at all.
+- **MRR:** whether the target ranks near #1 rather than #10.
+- **MTTC:** how quickly the target appears; lower is better.
+- **TechnicalScore:** combined score used for comparison.
+
+The starter reference is Hit Rate@10 `0.125`, MRR `0.068034`, and MTTC `9.81`. Your first objective is to beat these numbers without breaking any scenario type.
+
+## Timeline: Wednesday 26 August to Tuesday 1 September, 12:00 PM SGT
+
+| Time | Outcome |
+|---|---|
+| Wed night | Everyone can run baseline; agree interfaces and create first commit. |
+| Thu | Add session state, basic constraint extraction, and reusable BM25 search. |
+| Fri | Add filtering, state-aware ranking, questions, and override handling. |
+| Sat | Integrate and tune against the 200 public sessions. Compare every change to baseline. |
+| Sun | Add tests, analyse failures by scenario, and optionally trial semantic retrieval. |
+| Mon 10:00 AM | Feature freeze. From now on: only fixes, tests, documentation, and demo work. |
+| Mon PM | README, Devpost text, metrics table, demo video, clean-run rehearsal. |
+| Tue 09:00-11:30 AM | Final evaluator, clean-clone test, check links and secrets, submit. |
+| Tue 11:30 AM-12:00 PM | Buffer only. |
 
 ## Definition of done
 
-- Official starter interface and local evaluator run from a clean setup.
-- Agent handles both Buying and Browsing sessions, including one explicit intent override.
-- Retrieval stays entirely in memory and catalog data remains read-only.
-- Results are compared against the supplied BM25 baseline on the public sessions, with metrics recorded.
-- Tests cover routing, slot accumulation, slot overwrite/erasure, clarification, and ranking/format contract.
-- Public repository contains a reproducible README, contribution summary, limitations, and no secrets.
-- A short public YouTube demo shows setup, a successful multi-turn session, evaluation output, and the design rationale.
-
-## Timeline to Tuesday, 1 September, 12:00 PM (SGT)
-
-| When | Milestone | Evidence |
-|---|---|---|
-| Wed 26 Aug - Thu 27 Aug AM | Bootstrap the kit; run the baseline and evaluator; inspect data/session format | Baseline metrics and environment notes |
-| Thu 27 Aug PM | Implement router and state model; agree scoring contract and repo structure | Unit tests for intent and slot updates |
-| Fri 28 Aug - Sat 29 Aug | Implement BM25/filter retrieval and local dense retrieval; wire hybrid reranker | End-to-end agent produces ranked results |
-| Sun 30 Aug | Add clarification/diversification; tune only on development sessions | Metric comparison against baseline |
-| Mon 31 Aug AM | Integrate, test edge cases, freeze dependencies, clean code | `pytest` and official evaluator pass |
-| Mon 31 Aug PM | Write README/Devpost draft; create and upload demo video | Submission assets ready |
-| Tue 1 Sep 09:00-11:00 | Final clean-clone run, evaluator run, repo check, submit | Submission links verified |
-| Tue 1 Sep 11:00-12:00 | Buffer for upload or last-mile fixes only | Submit before noon |
-
-## Submission checklist
-
-- Devpost description: problem, approach, tools/APIs, libraries, datasets/assets, metrics, and limitations.
-- Public GitHub repository: structured/commented code, setup, reproduction steps, limitations/future work, and each member's contribution.
-- Public YouTube demo linked from Devpost; no unlicensed material or exposed secrets.
-- Capture a compact table comparing baseline vs final on Hit Rate@10, MRR, MTTC, Efficiency, and TechnicalScore.
-
-## Risks and guardrails
-
-- Do not tune against or leak hidden-session assumptions; use only the 200 public development sessions.
-- Dense embeddings may be slow to download or build. Keep BM25 + metadata filtering as a fully functional fallback, cache vectors, and cap candidate sets before reranking.
-- Avoid a paid LLM dependency. The organiser provides no credentials and does not require one.
-- Start integration early: a sophisticated component that does not conform to the official agent contract earns nothing.
+- `python -m evaluator.local_evaluator` works from a clean setup.
+- Your `Agent` returns valid, distinct catalog `parent_asin` IDs.
+- The agent recommends and asks useful questions across Buying, Browsing, Intent Override, and Boundary sessions.
+- You have recorded final metrics and a comparison with the starter baseline.
+- README explains setup, reproduction, approach, limitations, and team contributions.
+- The public repository contains no API keys or private data.
+- Devpost and public demo video are ready before Tuesday noon.

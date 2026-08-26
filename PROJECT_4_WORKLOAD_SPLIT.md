@@ -1,62 +1,191 @@
-# Project 4: Workload Split for Three People
+# Detailed and Balanced Workload Split - Three-Person Team
 
-## Team operating rule
+## The team goal
 
-Work against one shared interface from day one. The integration branch must always run the official evaluator; each person owns tests for their module and reviews one teammate's pull request. Freeze features by Monday morning so Monday afternoon is reserved for proof, documentation, and the demo.
+Build one reliable `Agent` in `starter/agent.py` that beats the supplied BM25 baseline, works across Buying, Browsing, Intent Override, and Boundary sessions, and is ready to submit by **Tuesday, 1 September, 12:00 PM SGT**.
 
-## Ownership
+The work is split into three equally important technical tracks:
 
-| Person | Primary ownership | Concrete deliverables | Backup / review responsibility |
-|---|---|---|---|
-| **Person 1 - Retrieval and ranking lead** | Catalog loading, metadata filters, BM25, dense retrieval, candidate fusion/diversification, hybrid reranker | Reproducible index build/cache; ranked candidate API; baseline-versus-final metric table | Review agent integration; keep a BM25-only fallback |
-| **Person 2 - Conversation-agent lead** | Official agent interface, intent router, dialogue state machine, override/slot reset logic, clarification policy, final response formatting | Runnable end-to-end agent; router/state/clarification tests; example successful and changed-intent conversations | Review retrieval contract and write the architecture section |
-| **Person 3 - Evaluation and submission lead** | Starter-kit setup, data/session inspection, evaluator automation, experiment tracking, regression tests, README, Devpost draft, demo production | One-command evaluation notes; experiment log; clean README; metrics/error analysis; public demo video and submission checklist | Review final repository, credentials scan, and reproducibility run |
+```text
+Person 1: Find relevant products
+Person 2: Understand and remember the customer
+Person 3: Prove the agent works and improve it from evidence
+```
 
-## Required hand-offs
+Each person writes code, tests their work, joins daily integration, and contributes to the final README/demo. Documentation is not assigned as a separate "lighter" job.
 
-| Deadline (SGT) | Handoff | Owner | Recipient / acceptance condition |
-|---|---|---|---|
-| Thu 27 Aug, 12:00 | Baseline agent, data format, evaluator command and initial metrics | Person 3 | Whole team can run the same baseline |
-| Thu 27 Aug, 18:00 | `ConversationState` schema plus retrieval request/response contract | Person 2 | Person 1 can implement retrieval without guessing fields |
-| Sat 29 Aug, 12:00 | First hybrid ranker callable from the agreed interface | Person 1 | Person 2 can connect it to the agent |
-| Sun 30 Aug, 12:00 | Integrated multi-turn agent with clarification and intent override | Persons 1 + 2 | Person 3 can run public-session evaluation |
-| Sun 30 Aug, 20:00 | Metrics table, failures to fix, and 2-3 demo scenarios | Person 3 | Whole team agrees on final tuning priorities |
-| Mon 31 Aug, 10:00 | Feature freeze; only defects, tests, docs, and demo changes after this point | Whole team | Evaluator completes and no interface changes remain |
-| Mon 31 Aug, 18:00 | README/Devpost draft and recorded demo ready for review | Person 3 | Whole team signs off on technical accuracy |
-| Tue 1 Sep, 10:30 | Clean-clone verification, final evaluator metrics, and upload check | Persons 1-3 | Submission ready with 90-minute buffer |
+## Shared interface - agree on this first
 
-## Daily cadence
+Before anyone makes a large change, agree on the data passed between the retrieval and conversation parts:
 
-- **09:30, 10 minutes:** each person states yesterday's evidence, today's outcome, and one blocker.
-- **18:00, 15 minutes:** integrate to the shared branch, run the evaluator, and record metrics. Do not end the day with unmerged incompatible interfaces.
-- **Monday after 10:00:** reject new features unless they directly fix a scored requirement or a reproducibility defect.
+```python
+constraints = {
+    "category": None,
+    "material": None,
+    "color": None,
+    "size": None,
+    "style": None,
+    "brand": None,
+    "budget": None,
+    "feature": None,
+    "use_case": None,
+}
 
-## Friday-Sunday task detail
+search(query: str, constraints: dict, top_k: int) -> list[str]
+```
 
-### Person 1 - Retrieval and ranking
+The return value is a list of real catalog `parent_asin` strings, in ranking order. Do not return product titles or full catalog objects to the evaluator.
 
-- Build catalog normalisation and field filters.
-- Establish BM25 baseline, then add local embedding retrieval and candidate fusion.
-- Implement reranking weights/configuration and diversity handling.
-- Provide a small failure-analysis report: bad categories, sparse metadata, or near-duplicate results.
+## Person 1 - Retrieval and ranking engineer
 
-### Person 2 - Conversation agent
+### Main responsibility
 
-- Build intent decision rules and test with a small labelled fixture set.
-- Implement additive slots and explicit replacement/erasure, e.g. "not shoes - I need a handbag instead".
-- Decide exactly when to ask a clarification; ensure the answer asks one useful question and preserves context.
-- Integrate Person 1's ranker and ensure responses honour the organiser's API schema.
+Turn the catalog and the latest customer requirements into a strong, valid Top-10 recommendation list.
 
-### Person 3 - Evaluation and communication
+### Code ownership
 
-- Automate baseline and final evaluations and save a simple metrics CSV/JSON outside versioned secrets/data.
-- Compare every material change with the public evaluator; stop regressions early.
-- Draft README and Devpost copy from actual implementation evidence, not future plans.
-- Produce demo: problem (20 sec), architecture (30 sec), live multi-turn success (60 sec), intent override/clarification (30 sec), metrics/limitations (30 sec).
+- `starter/retrieval.py`, if created, or the retrieval-related methods in `starter/agent.py`.
+- Product text normalisation and in-memory SQLite FTS5/BM25 index.
+- Candidate retrieval, filtering, rescoring, de-duplication, and ranking.
 
-## Tuesday submission sequence
+### Tasks
 
-1. Person 1 runs the final evaluator and confirms the metrics table.
-2. Person 2 runs a fresh end-to-end conversation and checks the official interface/turn limit.
-3. Person 3 checks repository visibility, README, Devpost links, YouTube visibility, and secret-free status.
-4. Submit by **11:30 AM SGT**; retain the last 30 minutes as genuine contingency.
+1. Understand the existing BM25 starter code and confirm which fields are indexed: title, categories, features, details, store, and description.
+2. Extract the current SQL query into a reusable `search()` function matching the shared interface.
+3. Use customer constraints to strengthen the query and/or rerank results:
+   - large boost for category matches;
+   - strong boost for directly requested material or brand;
+   - moderate boost for colour, size, style, feature, and use case;
+   - penalty for clear conflicts, such as a different category after an override.
+4. Ensure outputs are unique, real catalog IDs and contain no more than `top_k` recommendations.
+5. Keep a simple BM25-only fallback; do not make the entire agent depend on a downloaded model or external service.
+6. If the local agent is stable by Sunday, optionally test semantic candidate retrieval. It must be in-memory and must be compared with BM25 using the official evaluator.
+
+### Tests to write
+
+- A search for "lightweight stainless steel hoop earrings" returns ten valid unique IDs.
+- Adding `material="leather"` changes the ranking toward leather products.
+- Adding a category constraint prevents unrelated product categories from dominating.
+- Empty/broad queries do not crash and return valid output.
+
+### Deliverables
+
+| Deadline | Deliverable |
+|---|---|
+| Thu 18:00 | `search()` interface agreed and a BM25-only version callable by Person 2. |
+| Fri 18:00 | Constraint-aware ranking and tests committed. |
+| Sat 12:00 | Retrieval is integrated into the evaluator-facing `Agent`. |
+| Sun 18:00 | Optional semantic experiment results or a documented decision not to add it. |
+
+## Person 2 - Conversation and decision engineer
+
+### Main responsibility
+
+Make the agent behave like a useful shopping assistant across multiple turns: remember answers, ask the right question, and abandon old preferences after a change of mind.
+
+### Code ownership
+
+- `starter/state.py`, if created, or state/decision-related methods in `starter/agent.py`.
+- Per-session state created in `Agent.reset()`.
+- Message parsing, constraint updates, override handling, clarification policy, and final response assembly.
+
+### Tasks
+
+1. Create a session-state dictionary keyed by `session_id`. Store `user_profile`, constraints, message history, and last asked attribute.
+2. Write lightweight extraction rules for catalogue-relevant attributes: category, material, colour, size, style, brand, budget, feature, and use case.
+3. Merge new information into state. If the evaluator replies "For that, what matters is: cotton", remember `material="cotton"` for later turns.
+4. Detect overrides using language such as "actually", "instead", "ignore", "not", and "rather". Clear/rewrite the old conflicting state instead of accumulating impossible requirements.
+5. Choose at most one useful `ask_attribute` each turn. For a broad message, ask category first; then ask the most valuable missing constraint. Use `null` when asking is not useful.
+6. Call Person 1's `search()` on every turn and return its IDs alongside the question. Never return a question alone.
+7. Keep the exact required response format, including `usage` values. For a no-LLM implementation, report zero tokens.
+
+### Tests to write
+
+- `reset()` creates isolated state for two different sessions.
+- A material response remains in state on the following turn.
+- "Actually, ignore the red dress; I need black shoes" removes/replaces old category and colour assumptions.
+- A broad request asks an allowed attribute.
+- A response includes a string `message`, valid `ask_attribute`, recommendations, and non-negative token counts.
+
+### Deliverables
+
+| Deadline | Deliverable |
+|---|---|
+| Thu 18:00 | State schema and shared constraints contract agreed. |
+| Fri 18:00 | State update, basic questions, and response-format tests committed. |
+| Sat 12:00 | Intent Override and Boundary behaviour integrated with Person 1's search. |
+| Sun 18:00 | Test cases cover all four scenario types. |
+
+## Person 3 - Evaluation, quality, and experiment engineer
+
+### Main responsibility
+
+Make improvements measurable, catch regressions before they reach submission, and turn evaluator evidence into the team’s next technical decision. This is a coding and analysis role, not merely documentation.
+
+### Code ownership
+
+- `tests/` additions and any safe analysis helpers outside `evaluator/`.
+- A metrics/experiment log.
+- Response-validation helper tests, reproducibility checks, error analysis, final metrics table, README/evidence, and demo script.
+
+### Tasks
+
+1. Preserve the starting baseline results, then maintain a metrics log with date, Git commit, change, Hit Rate@10, MRR, MTTC, TechnicalScore, and scenario notes.
+2. Run `python -m evaluator.local_evaluator` after every merged change. Compare overall and scenario metrics with the previous best result.
+3. Build tests for response validity and reliability:
+   - at most ten recommendations;
+   - no duplicate IDs;
+   - every returned ID exists in the catalog;
+   - `ask_attribute` is allowed or `null`;
+   - failure or empty input does not crash the agent.
+4. Read `results.json` after each run, group misses by scenario type, and identify specific failure patterns for Persons 1 and 2. Examples: category mismatch, forgotten answer, bad override, weak vague-query result.
+5. Create small local test fixtures for important conversation behaviours. Do not alter the evaluator, catalog, or public session labels.
+6. Own clean-run reproducibility: a new machine/user should be able to follow README instructions, build the index, run the evaluator, and obtain the recorded result.
+7. Write the README/Devpost and demo from verified evidence, with input from Persons 1 and 2. Include actual model choice, cost, latency, tokens, metrics, limitations, and contributions.
+
+### Tests and artefacts to write
+
+- `tests/test_agent.py` or equivalent response-contract tests.
+- A concise `metrics.md` or CSV experiment log.
+- A final before/after metric table: starter baseline vs final agent.
+- Failure-analysis notes with two or three representative improvements.
+
+### Deliverables
+
+| Deadline | Deliverable |
+|---|---|
+| Thu 12:00 | Baseline `results.json` recorded; metrics log and initial contract tests created. |
+| Fri 18:00 | Automated response-validity tests running locally. |
+| Sat 18:00 | Integrated run report, scenario breakdown, and prioritised failure list. |
+| Sun 18:00 | Reproducibility check, final metric table draft, and README outline. |
+| Mon 18:00 | README, Devpost draft, demo video/script, and submission checklist ready. |
+
+## Integration plan - nobody waits for another person
+
+| Time | Person 1 | Person 2 | Person 3 | Shared outcome |
+|---|---|---|---|---|
+| Wed night | Read BM25/index code | Read agent contract/state flow | Save baseline and inspect `results.json` | Everyone can run the baseline. |
+| Thu | Create callable `search()` | Create session state and extractor | Create metrics log and contract tests | Agree shared constraints interface by 18:00. |
+| Fri | Add filters/reranking | Add questions/overrides | Test outputs and track metrics | First integrated agent by end of day. |
+| Sat | Tune retrieval | Tune state/question policy | Run evaluator and analyse failures | Beat baseline without regressions. |
+| Sun | Optional semantic trial | Improve failure cases | Reproducibility/error analysis | Decide final technical scope. |
+| Mon | Fix only scored defects | Fix only scored defects | Docs/demo/final test | Feature freeze at 10:00. |
+| Tue | Final evaluation | Final scenario smoke test | Submission verification | Submit by 11:30. |
+
+## Daily working agreement
+
+1. **09:30, 10 minutes:** say what evidence you produced yesterday, what you will deliver today, and what blocks you.
+2. **Before coding:** pull the latest shared branch; do not overwrite another person’s changes.
+3. **Small commits:** commit a working unit with a clear message. Do not wait until the end of the day.
+4. **18:00 integration:** merge compatible work, run the official evaluator, and log metrics. A feature is not complete until it survives this run.
+5. **Feature freeze Monday 10:00:** after that, only defects, tests, reproducibility, documentation, and demo work. No speculative rewrite.
+
+## Submission rules everyone must remember
+
+- Change `starter/agent.py` and your own helper/test files only; do not edit the evaluator or labels.
+- Search `data/catalog.jsonl`, but do not mutate it or invent ASINs.
+- Return only exact `parent_asin` recommendations, maximum ten, on every turn.
+- Ask at most one valid attribute per turn and keep recommending while asking.
+- Use only the 200 public sessions to evaluate/tune; never hard-code target products from them.
+- Do not commit API keys, secrets, model caches, or private data.
+- If you use an LLM, disclose model, estimated cost, latency, and returned token usage. It remains optional.
