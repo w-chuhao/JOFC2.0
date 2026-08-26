@@ -102,6 +102,42 @@ class AgentConversationTest(unittest.TestCase):
 
         self.assertEqual(self.agent.sessions["session"].constraints["material"], "leather")
 
+    def test_material_reply_preserves_all_disclosed_material_clues(self) -> None:
+        self.agent.reset("session", {})
+        self.agent.respond("session", "I'm looking for shoes.", 1, 10)
+
+        self.agent.respond(
+            "session",
+            "For that, what matters is: polyester; "
+            "75% Polyester, 20% Rayon, 5% Spandex.",
+            2,
+            10,
+        )
+
+        material = str(self.agent.sessions["session"].constraints["material"])
+        self.assertIn("polyester", material)
+        self.assertIn("rayon", material)
+        self.assertIn("spandex", material)
+
+    def test_feature_question_precedes_low_value_budget_question(self) -> None:
+        self.agent.reset("session", {})
+        first_response = self.agent.respond(
+            "session",
+            "I'm looking for shoes, but I'm still exploring.",
+            1,
+            10,
+        )
+        self.assertEqual(first_response["ask_attribute"], "material")
+
+        second_response = self.agent.respond(
+            "session",
+            "I don't have an additional preference for material.",
+            2,
+            10,
+        )
+
+        self.assertEqual(second_response["ask_attribute"], "feature")
+
     def test_override_replaces_old_category_and_color(self) -> None:
         self.agent.reset("session", {})
         self.agent.respond("session", "I want a red dress.", 1, 10)

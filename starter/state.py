@@ -21,14 +21,14 @@ ALLOWED_ATTRIBUTES = frozenset((*CONSTRAINT_KEYS, "other"))
 QUESTION_ORDER = (
     "category",
     "material",
-    "color",
-    "size",
-    "style",
-    "budget",
     "feature",
+    "color",
+    "style",
+    "size",
     "use_case",
-    "brand",
     "other",
+    "budget",
+    "brand",
 )
 
 QUESTION_MESSAGES = {
@@ -354,7 +354,7 @@ def extract_constraints(state: SessionState, message: str) -> dict[str, Constrai
     if disclosed:
         value = _clean_value(disclosed.group(1))
         if value:
-            updates[_classify_value(value)] = value
+            updates.setdefault(_classify_value(value), value)
 
     direct_values = {
         "category": _category_from_message(message),
@@ -364,19 +364,19 @@ def extract_constraints(state: SessionState, message: str) -> dict[str, Constrai
         "use_case": _last_match(USE_CASE_RE, message),
     }
     for key, value in direct_values.items():
-        if value:
+        if value and key not in updates:
             updates[key] = value
 
     size_matches = list(SIZE_RE.finditer(message))
-    if size_matches:
+    if size_matches and "size" not in updates:
         updates["size"] = _clean_value(size_matches[-1].group(1))
 
     brand_matches = list(BRAND_RE.finditer(message))
-    if brand_matches:
+    if brand_matches and "brand" not in updates:
         updates["brand"] = _clean_value(brand_matches[-1].group(1))
 
     budget = _budget_from_message(message)
-    if budget is not None:
+    if budget is not None and "budget" not in updates:
         updates["budget"] = budget
 
     return updates
@@ -415,11 +415,29 @@ def update_state(state: SessionState, message: str) -> None:
     if _mark_no_preference(state, message):
         return
 
-    if OVERRIDE_RE.search(message):
+    is_override = OVERRIDE_RE.search(message) is not None
+    if is_override:
         _clear_overridden_values(state, message)
 
     for key, value in extract_constraints(state, message).items():
-        state.constraints[key] = value
+        current = state.constraints[key]
+        if (
+            not is_override
+            and key in {"material", "feature", "use_case"}
+            and current is not None
+            and isinstance(value, str)
+        ):
+            current_text = str(current)
+            current_lower = current_text.casefold()
+            value_lower = value.casefold()
+            if value_lower in current_lower:
+                continue
+            if current_lower in value_lower:
+                state.constraints[key] = value
+            else:
+                state.constraints[key] = f"{current_text}; {value}"
+        else:
+            state.constraints[key] = value
 
 
 def choose_clarification(state: SessionState, turn: int) -> str | None:
