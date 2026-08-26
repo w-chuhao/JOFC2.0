@@ -5,6 +5,14 @@ import re
 import sqlite3
 from pathlib import Path
 
+from starter.state import (
+    SessionState,
+    choose_clarification,
+    record_response,
+    response_message,
+    update_state,
+)
+
 
 TOKEN_RE = re.compile(r"[a-z0-9]+", re.IGNORECASE)
 STOPWORDS = {
@@ -33,12 +41,12 @@ def _terms(text: str) -> list[str]:
 
 
 class Agent:
-    """Editable weak baseline: stateless BM25 retrieval with no LLM dependency."""
+    """Local BM25 agent with deterministic per-session conversation state."""
 
     def __init__(self, catalog_path: str | Path = "data/catalog.jsonl") -> None:
         self.catalog_path = Path(catalog_path)
         self.connection = sqlite3.connect(":memory:")
-        self._sessions: set[str] = set()
+        self.sessions: dict[str, SessionState] = {}
         self._build_index()
 
     def _build_index(self) -> None:
@@ -71,8 +79,19 @@ class Agent:
         self.connection.commit()
 
     def reset(self, session_id: str, user_profile: dict) -> None:
-        # The profile is anonymized and may be used for personalization.
-        self._sessions.add(session_id)
+        self.sessions[session_id] = SessionState.create(user_profile)
+
+    def _recommend(self, query: str, top_k: int) -> list[dict[str, str]]:
+        unique_terms = list(dict.fromkeys(_terms(query)))[:40]
+        expression = " OR ".join(f'"{term}"' for term in unique_terms)
+        if not expression:
+            return []
+        rows = self.connection.execute(
+            "SELECT parent_asin FROM products WHERE products MATCH ? "
+            "ORDER BY bm25(products, 0.0, 6.0, 4.0, 2.5, 2.5, 1.5, 1.0) LIMIT ?",
+            (expression, top_k),
+        ).fetchall()
+        return [{"parent_asin": str(row[0])} for row in rows]
 
     def respond(
         self,
@@ -81,22 +100,21 @@ class Agent:
         turn: int,
         top_k: int,
     ) -> dict:
-        if session_id not in self._sessions:
-            raise RuntimeError("reset must be called before respond")
-        unique_terms = list(dict.fromkeys(_terms(user_message)))[:40]
-        expression = " OR ".join(f'"{term}"' for term in unique_terms)
-        if not expression:
-            recommendations: list[dict] = []
-        else:
-            rows = self.connection.execute(
-                "SELECT parent_asin FROM products WHERE products MATCH ? "
-                "ORDER BY bm25(products, 0.0, 6.0, 4.0, 2.5, 2.5, 1.5, 1.0) LIMIT ?",
-                (expression, top_k),
-            ).fetchall()
-            recommendations = [{"parent_asin": str(row[0])} for row in rows]
+        try:
+            state = self.sessions[session_id]
+        except KeyError as error:
+            raise RuntimeError("reset must be called before respond") from error
+
+        update_state(state, user_message)
+        query = state.search_text() or user_message
+        recommendations = self._recommend(query, top_k)
+        ask_attribute = choose_clarification(state, turn)
+        message = response_message(ask_attribute)
+        record_response(state, message, ask_attribute, recommendations)
+
         return {
-            "message": "Here are the closest matches I found.",
-            "ask_attribute": None,
+            "message": message,
+            "ask_attribute": ask_attribute,
             "recommendations": recommendations,
             "usage": {"prompt_tokens": 0, "completion_tokens": 0},
         }
