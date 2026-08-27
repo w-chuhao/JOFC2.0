@@ -44,6 +44,18 @@ QUESTION_MESSAGES = {
     "other": "Is there another requirement that matters to you?",
 }
 
+PROFILE_ATTRIBUTE_MAP = {
+    "material": "material",
+    "fit": "size",
+    "size": "size",
+    "style": "style",
+    "comfort": "feature",
+    "durability": "feature",
+    "performance": "feature",
+    "warmth": "feature",
+    "weather": "use_case",
+}
+
 MATERIALS = (
     "stainless steel",
     "polyester",
@@ -237,19 +249,44 @@ BLANKET_OVERRIDE_RE = re.compile(
     r"\b(?:ignore|forget) (?:my )?(?:earlier|previous|old) preference",
     re.IGNORECASE,
 )
+NEGATED_VALUE_RE = re.compile(
+    r"\b(?:not|without|avoid|anything except)\s+(.+?)"
+    r"(?=[.;]|,?\s+(?:but|instead|rather)\b|$)",
+    re.IGNORECASE,
+)
 
 
 ConstraintValue = str | float | None
+
+
+@dataclass(frozen=True, slots=True)
+class ConstraintEvidence:
+    value: str | float
+    source_turn: int
+    source_message: str
+    source_kind: str
 
 
 def empty_constraints() -> dict[str, ConstraintValue]:
     return {key: None for key in CONSTRAINT_KEYS}
 
 
+def empty_evidence() -> dict[str, list[ConstraintEvidence]]:
+    return {key: [] for key in CONSTRAINT_KEYS}
+
+
+def empty_exclusions() -> dict[str, set[str]]:
+    return {key: set() for key in CONSTRAINT_KEYS}
+
+
 @dataclass
 class SessionState:
     user_profile: dict
     constraints: dict[str, ConstraintValue] = field(default_factory=empty_constraints)
+    constraint_evidence: dict[str, list[ConstraintEvidence]] = field(
+        default_factory=empty_evidence
+    )
+    excluded_constraints: dict[str, set[str]] = field(default_factory=empty_exclusions)
     history: list[dict[str, object]] = field(default_factory=list)
     last_asked_attribute: str | None = None
     asked_attributes: set[str] = field(default_factory=set)
@@ -382,6 +419,102 @@ def extract_constraints(state: SessionState, message: str) -> dict[str, Constrai
     return updates
 
 
+def _refresh_constraint(state: SessionState, attribute: str) -> None:
+    evidence = state.constraint_evidence[attribute]
+    if not evidence:
+        state.constraints[attribute] = None
+        return
+
+    if attribute not in {"material", "feature", "use_case"}:
+        state.constraints[attribute] = evidence[-1].value
+        return
+
+    values: list[str] = []
+    seen: set[str] = set()
+    for item in evidence:
+        text = str(item.value).strip()
+        normalized = text.casefold()
+        if text and normalized not in seen:
+            seen.add(normalized)
+            values.append(text)
+    state.constraints[attribute] = "; ".join(values) if values else None
+
+
+def _clear_attribute(state: SessionState, attribute: str) -> None:
+    state.constraint_evidence[attribute].clear()
+    state.constraints[attribute] = None
+
+
+def _remove_matching_evidence(
+    state: SessionState,
+    attribute: str,
+    value: str,
+) -> bool:
+    normalized = value.strip().casefold()
+    if not normalized:
+        return False
+    retained = [
+        item
+        for item in state.constraint_evidence[attribute]
+        if normalized not in str(item.value).strip().casefold()
+    ]
+    if len(retained) == len(state.constraint_evidence[attribute]):
+        return False
+    state.constraint_evidence[attribute] = retained
+    _refresh_constraint(state, attribute)
+    return True
+
+
+def _record_constraint(
+    state: SessionState,
+    attribute: str,
+    value: str | float,
+    source_turn: int,
+    source_message: str,
+    source_kind: str,
+    replace: bool,
+) -> None:
+    evidence = state.constraint_evidence[attribute]
+    if replace:
+        evidence.clear()
+
+    normalized = str(value).strip().casefold()
+    already_recorded_this_turn = any(
+        str(item.value).strip().casefold() == normalized
+        and item.source_turn == source_turn
+        for item in evidence
+    )
+    if not already_recorded_this_turn:
+        evidence.append(
+            ConstraintEvidence(
+                value=value,
+                source_turn=source_turn,
+                source_message=source_message,
+                source_kind=source_kind,
+            )
+        )
+    state.excluded_constraints[attribute].discard(normalized)
+    state.no_preference_attributes.discard(attribute)
+    _refresh_constraint(state, attribute)
+
+
+def _source_kind(
+    message: str,
+    attribute: str,
+    source_turn: int,
+    is_override: bool,
+) -> str:
+    if is_override:
+        return "override"
+    if REVEALED_VALUE_RE.search(message):
+        return "clarification"
+    if DISCLOSED_REQUIREMENT_RE.search(message):
+        return "disclosed"
+    if source_turn == 1 and attribute != "category":
+        return "initial_preference"
+    return "direct"
+
+
 def _mark_no_preference(state: SessionState, message: str) -> bool:
     match = NO_PREFERENCE_RE.search(message)
     if not match:
@@ -391,59 +524,130 @@ def _mark_no_preference(state: SessionState, message: str) -> bool:
         attribute = state.last_asked_attribute or "other"
     state.no_preference_attributes.add(attribute)
     if attribute in CONSTRAINT_KEYS:
-        state.constraints[attribute] = None
+        _clear_attribute(state, attribute)
     return True
 
 
-def _clear_overridden_values(state: SessionState, message: str) -> None:
+def _clear_overridden_values(state: SessionState, message: str) -> set[str]:
+    cleared_attributes: set[str] = set()
     if BLANKET_OVERRIDE_RE.search(message):
         for key in CONSTRAINT_KEYS:
-            if key != "category":
-                state.constraints[key] = None
+            if key == "category":
+                continue
+            retained = [
+                item
+                for item in state.constraint_evidence[key]
+                if item.source_kind != "initial_preference"
+            ]
+            if len(retained) != len(state.constraint_evidence[key]):
+                state.constraint_evidence[key] = retained
+                _refresh_constraint(state, key)
+                cleared_attributes.add(key)
 
     lowered = message.lower()
-    for key, value in state.constraints.items():
-        if value is None:
+    for key in CONSTRAINT_KEYS:
+        for item in list(state.constraint_evidence[key]):
+            value = str(item.value).strip().casefold()
+            escaped = re.escape(value)
+            if re.search(rf"\b(?:not|without|ignore)\b[^.;]*\b{escaped}\b", lowered):
+                state.excluded_constraints[key].add(value)
+                if _remove_matching_evidence(state, key, value):
+                    cleared_attributes.add(key)
+
+    for match in NEGATED_VALUE_RE.finditer(message):
+        value = _clean_value(match.group(1))
+        if not value or value in {"my earlier preference", "my previous preference"}:
             continue
-        escaped = re.escape(str(value).lower())
-        if re.search(rf"\b(?:not|without|ignore)\b[^.;]*\b{escaped}\b", lowered):
-            state.constraints[key] = None
+        attribute = _classify_value(value)
+        state.excluded_constraints[attribute].add(value)
+        _remove_matching_evidence(state, attribute, value)
+        cleared_attributes.add(attribute)
+
+    return cleared_attributes
+
+
+def _clear_for_category_change(state: SessionState) -> set[str]:
+    cleared_attributes: set[str] = set()
+    for attribute in CONSTRAINT_KEYS:
+        if attribute == "category":
+            continue
+        if state.constraints[attribute] is not None:
+            _clear_attribute(state, attribute)
+            cleared_attributes.add(attribute)
+    return cleared_attributes
+
+
+def _reopen_cleared_questions(
+    state: SessionState,
+    cleared_attributes: set[str],
+) -> None:
+    for attribute in cleared_attributes:
+        if state.constraints[attribute] is not None:
+            continue
+        state.asked_attributes.discard(attribute)
+        state.no_preference_attributes.discard(attribute)
 
 
 def update_state(state: SessionState, message: str) -> None:
+    source_turn = 1 + sum(item["role"] == "user" for item in state.history)
     state.history.append({"role": "user", "message": message})
     if _mark_no_preference(state, message):
         return
 
     is_override = OVERRIDE_RE.search(message) is not None
+    updates = extract_constraints(state, message)
+    cleared_attributes: set[str] = set()
     if is_override:
-        _clear_overridden_values(state, message)
-
-    for key, value in extract_constraints(state, message).items():
-        current = state.constraints[key]
+        previous_category = state.constraints["category"]
+        cleared_attributes.update(_clear_overridden_values(state, message))
+        new_category = updates.get("category")
         if (
-            not is_override
-            and key in {"material", "feature", "use_case"}
-            and current is not None
-            and isinstance(value, str)
+            previous_category is not None
+            and new_category is not None
+            and str(previous_category).casefold() != str(new_category).casefold()
         ):
-            current_text = str(current)
-            current_lower = current_text.casefold()
-            value_lower = value.casefold()
-            if value_lower in current_lower:
-                continue
-            if current_lower in value_lower:
-                state.constraints[key] = value
-            else:
-                state.constraints[key] = f"{current_text}; {value}"
-        else:
-            state.constraints[key] = value
+            cleared_attributes.update(_clear_for_category_change(state))
+
+    for key, value in updates.items():
+        if value is None:
+            continue
+        _record_constraint(
+            state=state,
+            attribute=key,
+            value=value,
+            source_turn=source_turn,
+            source_message=message,
+            source_kind=_source_kind(message, key, source_turn, is_override),
+            replace=(
+                key in cleared_attributes
+                or key not in {"material", "feature", "use_case"}
+            ),
+        )
+
+    _reopen_cleared_questions(state, cleared_attributes)
+
+
+def _clarification_order(state: SessionState) -> tuple[str, ...]:
+    profile_tags = state.user_profile.get("preference_tags", [])
+    if not isinstance(profile_tags, list):
+        return QUESTION_ORDER
+
+    preferred_tail: list[str] = []
+    for tag in profile_tags:
+        attribute = PROFILE_ATTRIBUTE_MAP.get(str(tag).casefold())
+        if attribute in {"color", "style", "size", "use_case"}:
+            preferred_tail.append(attribute)
+
+    core = ("category", "material", "feature")
+    tail = tuple(attribute for attribute in QUESTION_ORDER if attribute not in core)
+    ordered_tail = tuple(dict.fromkeys((*preferred_tail, *tail)))
+    return (*core, *ordered_tail)
 
 
 def choose_clarification(state: SessionState, turn: int) -> str | None:
     if turn >= 10:
         return None
-    for attribute in QUESTION_ORDER:
+    for attribute in _clarification_order(state):
         already_resolved = (
             attribute in state.asked_attributes
             or attribute in state.no_preference_attributes
