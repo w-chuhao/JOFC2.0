@@ -70,6 +70,20 @@ Both LLM outputs are proposals only. Deterministic code owns validation, state m
 
 The starter's SQLite FTS5/BM25 index is a useful base, not disposable code. Improve it through better query construction, filtering, and transparent reranking.
 
+## TODO: Person 1 - improving catalogue retrieval
+
+The current system misses 20 of 200 targets, mainly because of ranking rather than retrieval: every missed target entered the candidate pool, and 12 reached ranks 11-20. Generic clues such as `cotton`, `polyester`, and `Imported` are insufficient to distinguish similar products, while repeated recommendations limit exploration.
+
+Person 1 should prioritize:
+
+- Rotating recommendations across turns while resetting appropriately after intent overrides. A diagnostic rotation test improved HR@10 from `0.900` to `0.990`.
+- Treating required, preferred, excluded, and unknown attributes differently during filtering and ranking.
+- Giving more weight to distinctive leaf-category, title, brand, material, and feature matches.
+- Providing candidate statistics so Person 2 can ask the attribute that best narrows the results.
+- Testing synonyms, typo tolerance, semantic fallback, and a modest popularity tie-breaker.
+
+Evaluate each improvement using HR@10, MRR, MTTC, cross-turn uniqueness, latency, and paraphrased or unseen edge cases to avoid overfitting the 200 public sessions.
+
 Keep a session state for each `session_id`, containing at least the user profile, constraints, history, and last asked attribute. When a customer changes their mind (for example, "Actually, not boots; I need sandals"), replace conflicting old constraints instead of accumulating both.
 
 ## Shared technical contract
