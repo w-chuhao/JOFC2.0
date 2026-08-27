@@ -1,0 +1,7 @@
+interface:
+  display_name: "Workflow"
+  short_description: "Repo workflows for explore, debug, review, test, simplify"
+  default_prompt: "Use $workflow to choose the right repository workflow before editing or debugging code."
+
+policy:
+  allow_implicit_invocation: false

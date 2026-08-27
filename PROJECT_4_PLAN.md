@@ -51,7 +51,32 @@ Always return recommendations, even when asking a question. A correct recommenda
 
 ## The version we should build first
 
-Build a strong, local, deterministic agent before adding any LLM. It is free, testable, and much less risky before Tuesday.
+Build a strong local retrieval agent first, then place an optional LLM **planner** around it. The LLM may interpret a message and choose a question, but it must never invent or rank product IDs. Retrieval remains local, deterministic, and the only source of `parent_asin` values.
+
+## Chosen hybrid workflow
+
+This is the agreed workflow when the optional LLM is enabled:
+
+```text
+1. Customer sends a message
+2. LLM proposes a structured StateDelta (new facts, replacements, and removals)
+3. Validate the StateDelta; update the conversation state
+4. Local retriever searches and ranks the catalog
+5. Retriever returns Top-10 IDs plus aggregate candidate-attribute statistics
+6. LLM proposes one useful allowed ask_attribute and natural-language question
+7. Validate the proposal; otherwise use deterministic question rules
+8. Agent returns the Top-10 IDs, question, and ask_attribute
+```
+
+When the customer replies, repeat from step 2 using the existing state. The LLM sees only the customer message, a compact session-state summary, and aggregate candidate statistics - not all 50,000 products and not target labels.
+
+### Why this is a good design
+
+- The LLM helps with ambiguous language and changes of mind.
+- Local retrieval stays fast, reproducible, and grounded in real catalog IDs.
+- Candidate statistics make questions data-driven: ask about the feature that would best separate the current candidates.
+- Strict validation prevents an unreliable LLM response from breaking the evaluator contract.
+- If there is no API key, a model error, a timeout, or a cost concern, the deterministic path still works.
 
 ### Part A - Keep and improve the existing BM25 search
 
@@ -59,7 +84,7 @@ The starter already creates an in-memory SQLite FTS5 index and performs BM25 key
 
 It should search the title, features, descriptions, categories, details, and store. Give title/categories more weight than long descriptions, and use the customer's latest message plus remembered constraints as the query.
 
-### Part B - Remember the conversation
+### Part B - Interpret, validate, and remember the conversation
 
 For each `session_id`, save a small dictionary called state:
 
@@ -77,11 +102,23 @@ For each `session_id`, save a small dictionary called state:
 }
 ```
 
-Start with straightforward keyword/rule extraction. It does not have to understand every English sentence perfectly. The main value is remembering information the evaluator gives after you ask a valid question.
+Use a `StateDelta` contract to represent what the latest message changes. Example:
+
+```python
+{
+    "set": {"category": "sandals", "color": "black"},
+    "clear": ["style"],
+    "confidence": 0.92,
+}
+```
+
+An optional LLM may propose this JSON, but code must validate it before applying it: only known keys are allowed, values must have the right type, budgets must be numeric, and `clear` may contain only known keys. A deterministic rule extractor produces the same shape when no LLM is used.
+
+The main value is remembering information the evaluator gives after you ask a valid question. When a message is an override, clear conflicting old state before setting new values.
 
 ### Part C - Ask useful questions
 
-If the user is broad, ask for the one piece of information most likely to narrow the search. For example:
+If the user is broad, ask for the one piece of information most likely to narrow the current candidate set. The retriever should report aggregate candidate statistics, such as how many of the best 50 products have each material, colour, or category. The question planner can choose the most informative missing attribute from these statistics.
 
 | What is missing? | Ask attribute | Example question |
 |---|---|---|
@@ -91,7 +128,7 @@ If the user is broad, ask for the one piece of information most likely to narrow
 | Budget | `budget` | "What price range works for you?" |
 | Occasion | `use_case` | "What will you be using it for?" |
 
-`ask_attribute` must be one of the values allowed by the contract: `category`, `material`, `color`, `size`, `style`, `brand`, `budget`, `feature`, `use_case`, `other`, or `null`.
+An optional LLM may propose the question and attribute. Code must validate both. `ask_attribute` must be one of the values allowed by the contract: `category`, `material`, `color`, `size`, `style`, `brand`, `budget`, `feature`, `use_case`, `other`, or `null`. If the proposal is missing, invalid, slow, or unavailable, use the deterministic priority rule instead.
 
 ### Part D - Handle a change of mind
 
@@ -116,7 +153,7 @@ Keep this transparent and tune its weights only by running the public evaluator.
 Only consider this after the deterministic version works and is merged.
 
 - **Semantic search:** make a local embedding for each product and the customer query, compare them with cosine similarity, and combine the best semantic candidates with BM25 candidates. Keep everything in memory; do not build PostgreSQL or pgvector.
-- **LLM:** optionally use one to extract structured constraints or rerank a small list of candidates. It cannot replace catalog retrieval. It requires your own key, cost/latency/token reporting, and a reliable no-LLM fallback.
+- **LLM planner:** optionally use one to propose a structured `StateDelta` and one question from aggregate candidate statistics. It cannot replace catalog retrieval or generate recommendations. It requires your own key, cost/latency/token reporting, strict schema validation, timeouts, and a reliable no-LLM fallback.
 
 Neither is required to submit a strong project. Do not add either if it risks the working baseline.
 
@@ -128,7 +165,8 @@ You may keep all code in `starter/agent.py` initially. Once it works, small help
 starter/
   agent.py        # required Agent interface and orchestration
   retrieval.py    # Person 1: BM25, filters, ranking
-  state.py        # Person 2: constraints, overrides, questions
+  state.py        # Person 2: StateDelta validation and constraints
+  planner.py      # Person 2: optional LLM planner + deterministic fallback
 tests/
   test_agent.py   # key behaviour tests
 ```

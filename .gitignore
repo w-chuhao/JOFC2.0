@@ -16,3 +16,6 @@ docs/participant_release_checklist.md
 tests/test_5core_builder.py
 tests/test_organizer_pipeline.py
 *.log
+
+# Local copy of the TechJam problem statement; keep it out of the submission repository.
+[[]Early Bird Access] TikTok TechJam 2026 Tracks & Problem Statements - Feishu Docs.pdf

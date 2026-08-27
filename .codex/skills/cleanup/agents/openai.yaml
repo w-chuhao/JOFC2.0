@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cleanup"
+  short_description: "Audit and remove dead workspace clutter"
+  default_prompt: "Use $cleanup to audit this repository for unused code, stale files, and safe cleanup opportunities."

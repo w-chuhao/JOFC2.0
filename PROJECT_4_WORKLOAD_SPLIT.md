@@ -31,10 +31,10 @@ constraints = {
     "use_case": None,
 }
 
-search(query: str, constraints: dict, top_k: int) -> list[str]
+search(query: str, constraints: dict, top_k: int) -> SearchResult
 ```
 
-The return value is a list of real catalog `parent_asin` strings, in ranking order. Do not return product titles or full catalog objects to the evaluator.
+`SearchResult` contains ordered real catalog `parent_asin` strings plus aggregate candidate-attribute statistics, such as material/category frequencies in the best 50 candidates. The final evaluator response uses only the ordered IDs. Do not return product titles or full catalog objects to the evaluator.
 
 ## Person 1 - Retrieval and ranking engineer
 
@@ -58,8 +58,9 @@ Turn the catalog and the latest customer requirements into a strong, valid Top-1
    - moderate boost for colour, size, style, feature, and use case;
    - penalty for clear conflicts, such as a different category after an override.
 4. Ensure outputs are unique, real catalog IDs and contain no more than `top_k` recommendations.
-5. Keep a simple BM25-only fallback; do not make the entire agent depend on a downloaded model or external service.
-6. If the local agent is stable by Sunday, optionally test semantic candidate retrieval. It must be in-memory and must be compared with BM25 using the official evaluator.
+5. Return aggregate candidate-attribute statistics from a larger candidate pool, so Person 2 can choose a follow-up question that actually separates candidates.
+6. Keep a simple BM25-only fallback; do not make the entire agent depend on a downloaded model or external service.
+7. If the local agent is stable by Sunday, optionally test semantic candidate retrieval. It must be in-memory and must be compared with BM25 using the official evaluator.
 
 ### Tests to write
 
@@ -92,27 +93,29 @@ Make the agent behave like a useful shopping assistant across multiple turns: re
 ### Tasks
 
 1. Create a session-state dictionary keyed by `session_id`. Store `user_profile`, constraints, message history, and last asked attribute.
-2. Write lightweight extraction rules for catalogue-relevant attributes: category, material, colour, size, style, brand, budget, feature, and use case.
-3. Merge new information into state. If the evaluator replies "For that, what matters is: cotton", remember `material="cotton"` for later turns.
-4. Detect overrides using language such as "actually", "instead", "ignore", "not", and "rather". Clear/rewrite the old conflicting state instead of accumulating impossible requirements.
-5. Choose at most one useful `ask_attribute` each turn. For a broad message, ask category first; then ask the most valuable missing constraint. Use `null` when asking is not useful.
-6. Call Person 1's `search()` on every turn and return its IDs alongside the question. Never return a question alone.
-7. Keep the exact required response format, including `usage` values. For a no-LLM implementation, report zero tokens.
+2. Define a strict `StateDelta` schema with `set` and `clear` operations for category, material, colour, size, brand, budget, style, feature, and use case.
+3. Write deterministic extraction rules that propose a StateDelta from each customer message. Merge only validated new information into state.
+4. Optionally add an LLM planner that proposes the same StateDelta JSON. Validate every key, type, allowed value, and budget before applying it; deterministic rules remain the fallback.
+5. Detect overrides using language such as "actually", "instead", "ignore", "not", and "rather". Clear/rewrite the old conflicting state instead of accumulating impossible requirements.
+6. Use Person 1's candidate statistics to select the most useful missing attribute. The optional LLM may propose one natural question and `ask_attribute`, but code must validate it and fall back to deterministic priority rules if needed.
+7. Call Person 1's `search()` on every turn and return only its IDs alongside the question. The LLM must never create or rank product IDs. Never return a question alone.
+8. Keep the exact required response format, including `usage` values. For a no-LLM implementation, report zero tokens.
 
 ### Tests to write
 
 - `reset()` creates isolated state for two different sessions.
 - A material response remains in state on the following turn.
 - "Actually, ignore the red dress; I need black shoes" removes/replaces old category and colour assumptions.
+- Invalid LLM JSON or a planner timeout safely falls back to deterministic extraction/question selection.
 - A broad request asks an allowed attribute.
-- A response includes a string `message`, valid `ask_attribute`, recommendations, and non-negative token counts.
+- A response includes a string `message`, valid `ask_attribute`, retrieval-sourced recommendations, and non-negative token counts.
 
 ### Deliverables
 
 | Deadline | Deliverable |
 |---|---|
 | Thu 18:00 | State schema and shared constraints contract agreed. |
-| Fri 18:00 | State update, basic questions, and response-format tests committed. |
+| Fri 18:00 | StateDelta validation, deterministic fallback, basic questions, and response-format tests committed. |
 | Sat 12:00 | Intent Override and Boundary behaviour integrated with Person 1's search. |
 | Sun 18:00 | Test cases cover all four scenario types. |
 
@@ -137,7 +140,8 @@ Make improvements measurable, catch regressions before they reach submission, an
    - no duplicate IDs;
    - every returned ID exists in the catalog;
    - `ask_attribute` is allowed or `null`;
-   - failure or empty input does not crash the agent.
+   - failure or empty input does not crash the agent;
+   - invalid/missing optional planner output cannot leak into the response contract.
 4. Read `results.json` after each run, group misses by scenario type, and identify specific failure patterns for Persons 1 and 2. Examples: category mismatch, forgotten answer, bad override, weak vague-query result.
 5. Create small local test fixtures for important conversation behaviours. Do not alter the evaluator, catalog, or public session labels.
 6. Own clean-run reproducibility: a new machine/user should be able to follow README instructions, build the index, run the evaluator, and obtain the recorded result.
@@ -165,8 +169,8 @@ Make improvements measurable, catch regressions before they reach submission, an
 | Time | Person 1 | Person 2 | Person 3 | Shared outcome |
 |---|---|---|---|---|
 | Wed night | Read BM25/index code | Read agent contract/state flow | Save baseline and inspect `results.json` | Everyone can run the baseline. |
-| Thu | Create callable `search()` | Create session state and extractor | Create metrics log and contract tests | Agree shared constraints interface by 18:00. |
-| Fri | Add filters/reranking | Add questions/overrides | Test outputs and track metrics | First integrated agent by end of day. |
+| Thu | Create callable `search()` and candidate statistics | Create session state, StateDelta schema, and deterministic extractor | Create metrics log and contract tests | Agree shared constraints interface by 18:00. |
+| Fri | Add filters/reranking | Add questions/overrides and validated optional planner | Test outputs and track metrics | First integrated agent by end of day. |
 | Sat | Tune retrieval | Tune state/question policy | Run evaluator and analyse failures | Beat baseline without regressions. |
 | Sun | Optional semantic trial | Improve failure cases | Reproducibility/error analysis | Decide final technical scope. |
 | Mon | Fix only scored defects | Fix only scored defects | Docs/demo/final test | Feature freeze at 10:00. |
@@ -188,4 +192,4 @@ Make improvements measurable, catch regressions before they reach submission, an
 - Ask at most one valid attribute per turn and keep recommending while asking.
 - Use only the 200 public sessions to evaluate/tune; never hard-code target products from them.
 - Do not commit API keys, secrets, model caches, or private data.
-- If you use an LLM, disclose model, estimated cost, latency, and returned token usage. It remains optional.
+- If you use an LLM, disclose model, estimated cost, latency, and returned token usage. It remains optional and may only propose state/question decisions; it never produces recommendation IDs.

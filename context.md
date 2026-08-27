@@ -40,10 +40,12 @@ Do not build a UI, database server, PostgreSQL, pgvector deployment, or cloud se
 
 ```text
 Customer message + remembered session state
-    -> extract/update constraints
+    -> propose a structured StateDelta (optional LLM or rules)
+    -> validate StateDelta and update constraints
     -> detect and handle an intent override
     -> BM25 search plus state-aware filtering/reranking
-    -> optional single clarification question
+    -> receive aggregate candidate-attribute statistics
+    -> propose and validate one clarification question
     -> Top-10 valid parent_asin response
 ```
 
@@ -51,12 +53,14 @@ The starter's SQLite FTS5/BM25 index is a useful base, not disposable code. Impr
 
 Keep a session state for each `session_id`, containing at least the user profile, constraints, history, and last asked attribute. When a customer changes their mind (for example, "Actually, not boots; I need sandals"), replace conflicting old constraints instead of accumulating both.
 
+An LLM is optional and may only act as a **planner**. It may propose a JSON `StateDelta` and a clarification question. It must not generate, select, or rank `parent_asin` values. Validate all planner output in code and fall back to deterministic extraction/question rules on missing credentials, errors, timeouts, or invalid output.
+
 ## Shared technical contract
 
 Use this interface between conversation logic and retrieval logic:
 
 ```python
-search(query: str, constraints: dict, top_k: int) -> list[str]
+search(query: str, constraints: dict, top_k: int) -> SearchResult
 ```
 
 `constraints` uses the keys:
@@ -75,7 +79,19 @@ search(query: str, constraints: dict, top_k: int) -> list[str]
 }
 ```
 
-The search function returns real `parent_asin` strings only, ranked best first.
+`SearchResult` contains:
+
+```python
+{
+    "recommendation_ids": ["B000..."],  # real parent_asin values, best first
+    "candidate_attribute_stats": {
+        "category": {"earrings": 32, "necklaces": 11},
+        "material": {"stainless steel": 18, "fabric": 9},
+    },
+}
+```
+
+The final evaluator response uses only `recommendation_ids`. Candidate statistics are aggregate data used to choose a high-value follow-up question; they are not product recommendations.
 
 ## Team ownership
 
