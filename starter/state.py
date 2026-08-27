@@ -44,18 +44,6 @@ QUESTION_MESSAGES = {
     "other": "Is there another requirement that matters to you?",
 }
 
-PROFILE_ATTRIBUTE_MAP = {
-    "material": "material",
-    "fit": "size",
-    "size": "size",
-    "style": "style",
-    "comfort": "feature",
-    "durability": "feature",
-    "performance": "feature",
-    "warmth": "feature",
-    "weather": "use_case",
-}
-
 MATERIALS = (
     "stainless steel",
     "polyester",
@@ -225,12 +213,14 @@ SIZE_RE = re.compile(
 )
 BUDGET_RE = re.compile(
     r"\b(?:budget(?:\s+(?:is|of|around))?|under|below|less than|up to|max(?:imum)?)"
-    r"\s*\$?\s*(\d+(?:\.\d{1,2})?)",
+    r"\s*\$?\s*(?P<amount>\d+(?:\.\d{1,2})?)"
+    r"(?!\s*(?:-|–)?\s*(?:inches?|in\b|centimeters?|cm\b|millimeters?|mm\b|"
+    r"ounces?|oz\b|pounds?|lbs?\b|percent|%|wrist|size\b))",
     re.IGNORECASE,
 )
 LABELED_VALUE_RE = re.compile(
-    r"\b(category|material|colou?r|size|style|brand|budget|feature|use[_ ]?case)"
-    r"\s*(?:is|:)?\s*([^.;]+)",
+    r"\b(category|material|colou?r|size|style|brand|budget|feature|use[_ ]?case)\b"
+    r"\s*(?:is|:)\s*([^.;]+)",
     re.IGNORECASE,
 )
 LOOKING_FOR_RE = re.compile(
@@ -252,6 +242,10 @@ BLANKET_OVERRIDE_RE = re.compile(
 NEGATED_VALUE_RE = re.compile(
     r"\b(?:not|without|avoid|anything except)\s+(.+?)"
     r"(?=[.;]|,?\s+(?:but|instead|rather)\b|$)",
+    re.IGNORECASE,
+)
+REQUEST_ATTRIBUTE_RE = re.compile(
+    r"\bask me about (?:one |a )?specific attribute\b",
     re.IGNORECASE,
 )
 
@@ -291,6 +285,9 @@ class SessionState:
     last_asked_attribute: str | None = None
     asked_attributes: set[str] = field(default_factory=set)
     no_preference_attributes: set[str] = field(default_factory=set)
+    consecutive_no_preference: int = 0
+    other_questions_asked: int = 0
+    override_seen: bool = False
 
     @classmethod
     def create(cls, user_profile: dict) -> SessionState:
@@ -335,12 +332,29 @@ def _category_from_message(message: str) -> str | None:
     if candidate in {"something", "something to wear", "anything", "clothing item"}:
         return None
     words = candidate.split()
-    return candidate if 0 < len(words) <= 5 else None
+    return candidate if 0 < len(words) <= 12 else None
 
 
 def _budget_from_message(message: str) -> float | None:
     matches = list(BUDGET_RE.finditer(message))
-    return float(matches[-1].group(1)) if matches else None
+    return float(matches[-1].group("amount")) if matches else None
+
+
+def _merge_update(
+    updates: dict[str, ConstraintValue],
+    attribute: str,
+    value: str | float,
+) -> None:
+    current = updates.get(attribute)
+    if current is None or attribute not in {"material", "feature", "use_case"}:
+        updates[attribute] = value
+        return
+
+    current_text = str(current).strip()
+    value_text = str(value).strip()
+    if not value_text or value_text.casefold() in current_text.casefold():
+        return
+    updates[attribute] = f"{current_text}; {value_text}"
 
 
 def _labeled_updates(message: str) -> dict[str, ConstraintValue]:
@@ -360,6 +374,8 @@ def _labeled_updates(message: str) -> dict[str, ConstraintValue]:
 def _classify_value(value: str) -> str:
     if _budget_from_message(value) is not None:
         return "budget"
+    if re.search(r"\brubber sole\b", value, re.IGNORECASE):
+        return "feature"
     if MATERIAL_RE.search(value):
         return "material"
     if COLOR_RE.search(value):
@@ -375,6 +391,19 @@ def _classify_value(value: str) -> str:
     return "feature"
 
 
+def _revealed_updates(value: str, asked_attribute: str | None) -> dict[str, str]:
+    if asked_attribute in CONSTRAINT_KEYS:
+        return {asked_attribute: value}
+
+    updates: dict[str, ConstraintValue] = {}
+    clauses = [_clean_value(clause) for clause in value.split(";")]
+    for clause in clauses:
+        if not clause:
+            continue
+        _merge_update(updates, _classify_value(clause), clause)
+    return {key: str(item) for key, item in updates.items() if item is not None}
+
+
 def extract_constraints(state: SessionState, message: str) -> dict[str, ConstraintValue]:
     updates = _labeled_updates(message)
 
@@ -382,10 +411,11 @@ def extract_constraints(state: SessionState, message: str) -> dict[str, Constrai
     if revealed:
         value = _clean_value(revealed.group(1))
         if value:
-            attribute = state.last_asked_attribute
-            if attribute not in CONSTRAINT_KEYS:
-                attribute = _classify_value(value)
-            updates[attribute] = value
+            for attribute, revealed_value in _revealed_updates(
+                value,
+                state.last_asked_attribute,
+            ).items():
+                _merge_update(updates, attribute, revealed_value)
 
     disclosed = DISCLOSED_REQUIREMENT_RE.search(message)
     if disclosed:
@@ -474,6 +504,11 @@ def _record_constraint(
     source_kind: str,
     replace: bool,
 ) -> None:
+    if attribute == "budget" and isinstance(value, str):
+        parsed_budget = _budget_from_message(value)
+        if parsed_budget is not None:
+            value = parsed_budget
+
     evidence = state.constraint_evidence[attribute]
     if replace:
         evidence.clear()
@@ -523,6 +558,7 @@ def _mark_no_preference(state: SessionState, message: str) -> bool:
     if attribute not in ALLOWED_ATTRIBUTES:
         attribute = state.last_asked_attribute or "other"
     state.no_preference_attributes.add(attribute)
+    state.consecutive_no_preference += 1
     if attribute in CONSTRAINT_KEYS:
         _clear_attribute(state, attribute)
     return True
@@ -596,8 +632,11 @@ def update_state(state: SessionState, message: str) -> None:
 
     is_override = OVERRIDE_RE.search(message) is not None
     updates = extract_constraints(state, message)
+    if updates:
+        state.consecutive_no_preference = 0
     cleared_attributes: set[str] = set()
     if is_override:
+        state.override_seen = True
         previous_category = state.constraints["category"]
         cleared_attributes.update(_clear_overridden_values(state, message))
         new_category = updates.get("category")
@@ -627,35 +666,43 @@ def update_state(state: SessionState, message: str) -> None:
     _reopen_cleared_questions(state, cleared_attributes)
 
 
-def _clarification_order(state: SessionState) -> tuple[str, ...]:
-    profile_tags = state.user_profile.get("preference_tags", [])
-    if not isinstance(profile_tags, list):
-        return QUESTION_ORDER
-
-    preferred_tail: list[str] = []
-    for tag in profile_tags:
-        attribute = PROFILE_ATTRIBUTE_MAP.get(str(tag).casefold())
-        if attribute in {"color", "style", "size", "use_case"}:
-            preferred_tail.append(attribute)
-
-    core = ("category", "material", "feature")
-    tail = tuple(attribute for attribute in QUESTION_ORDER if attribute not in core)
-    ordered_tail = tuple(dict.fromkeys((*preferred_tail, *tail)))
-    return (*core, *ordered_tail)
-
-
 def choose_clarification(state: SessionState, turn: int) -> str | None:
     if turn >= 10:
         return None
-    for attribute in _clarification_order(state):
+
+    other_is_available = "other" not in state.no_preference_attributes
+    no_preference_limit = 1 if state.override_seen else 2
+    if (
+        state.consecutive_no_preference >= no_preference_limit
+        and state.other_questions_asked < 2
+        and other_is_available
+    ):
+        return "other"
+
+    for attribute in QUESTION_ORDER:
+        if attribute == "other":
+            if state.other_questions_asked < 2 and other_is_available:
+                return "other"
+            continue
         already_resolved = (
             attribute in state.asked_attributes
             or attribute in state.no_preference_attributes
         )
         if already_resolved:
             continue
-        if attribute == "other" or state.constraints[attribute] is None:
+        if state.constraints[attribute] is None:
             return attribute
+
+    latest_user_message = next(
+        (
+            str(item.get("message", ""))
+            for item in reversed(state.history)
+            if item.get("role") == "user"
+        ),
+        "",
+    )
+    if REQUEST_ATTRIBUTE_RE.search(latest_user_message):
+        return "other"
     return None
 
 
@@ -674,6 +721,8 @@ def record_response(
     state.last_asked_attribute = ask_attribute
     if ask_attribute is not None:
         state.asked_attributes.add(ask_attribute)
+    if ask_attribute == "other":
+        state.other_questions_asked += 1
     state.history.append(
         {
             "role": "assistant",
