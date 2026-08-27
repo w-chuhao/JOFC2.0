@@ -624,11 +624,265 @@ def _reopen_cleared_questions(
         state.no_preference_attributes.discard(attribute)
 
 
-def update_state(state: SessionState, message: str) -> None:
+def state_for_llm(state: SessionState) -> dict[str, object]:
+    """Return a compact, secret-free view of conversation state for the LLM."""
+    return {
+        "constraints": copy.deepcopy(state.constraints),
+        "excluded_constraints": {
+            key: sorted(values)
+            for key, values in state.excluded_constraints.items()
+            if values
+        },
+        "asked_attributes": sorted(state.asked_attributes),
+        "no_preference_attributes": sorted(state.no_preference_attributes),
+        "recent_conversation": [
+            {
+                "role": item.get("role"),
+                "message": item.get("message"),
+                "ask_attribute": item.get("ask_attribute"),
+            }
+            for item in state.history[-6:]
+        ],
+    }
+
+
+def _validated_llm_delta(payload: object) -> dict | None:
+    if not isinstance(payload, dict):
+        return None
+    expected_keys = {
+        "set",
+        "clear",
+        "exclude",
+        "no_preference",
+        "intent_changed",
+        "ambiguities",
+        "confidence",
+    }
+    if set(payload) != expected_keys:
+        return None
+
+    confidence = payload["confidence"]
+    if (
+        isinstance(confidence, bool)
+        or not isinstance(confidence, (int, float))
+        or not 0 <= float(confidence) <= 1
+        or float(confidence) < 0.75
+    ):
+        return None
+
+    clear = payload["clear"]
+    no_preference = payload["no_preference"]
+    ambiguities = payload["ambiguities"]
+    if not all(isinstance(value, list) for value in (clear, no_preference, ambiguities)):
+        return None
+    if any(attribute not in CONSTRAINT_KEYS for attribute in clear):
+        return None
+    if any(attribute not in ALLOWED_ATTRIBUTES for attribute in no_preference):
+        return None
+    if any(not isinstance(item, str) or len(item) > 200 for item in ambiguities):
+        return None
+
+    set_values = payload["set"]
+    if not isinstance(set_values, dict):
+        return None
+    validated_set: dict[str, dict[str, object]] = {}
+    for attribute, entry in set_values.items():
+        if attribute not in CONSTRAINT_KEYS or not isinstance(entry, dict):
+            return None
+        if set(entry) != {"value", "priority", "evidence"}:
+            return None
+        value = entry["value"]
+        if attribute == "budget":
+            if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+                return None
+        elif not isinstance(value, str):
+            return None
+        if not str(value).strip() or len(str(value)) > 240:
+            return None
+        if entry["priority"] not in {"required", "preferred"}:
+            return None
+        evidence = entry["evidence"]
+        if not isinstance(evidence, str) or len(evidence) > 300:
+            return None
+        validated_set[attribute] = {
+            "value": value,
+            "priority": entry["priority"],
+            "evidence": evidence,
+        }
+
+    exclusions = payload["exclude"]
+    if not isinstance(exclusions, dict):
+        return None
+    validated_exclusions: dict[str, list[str]] = {}
+    for attribute, values in exclusions.items():
+        if attribute not in CONSTRAINT_KEYS or not isinstance(values, list):
+            return None
+        if any(
+            not isinstance(value, str)
+            or not value.strip()
+            or len(value) > 120
+            for value in values
+        ):
+            return None
+        validated_exclusions[attribute] = values
+
+    if not isinstance(payload["intent_changed"], bool):
+        return None
+    if payload["intent_changed"] and "category" not in validated_set:
+        return None
+    if set(validated_set).intersection(no_preference):
+        return None
+    for attribute, entry in validated_set.items():
+        normalized_value = str(entry["value"]).strip().casefold()
+        if any(
+            normalized_value == excluded.strip().casefold()
+            for excluded in validated_exclusions.get(attribute, [])
+        ):
+            return None
+
+    return {
+        "set": validated_set,
+        "clear": set(clear),
+        "exclude": validated_exclusions,
+        "no_preference": set(no_preference),
+        "intent_changed": payload["intent_changed"],
+    }
+
+
+def apply_llm_state_delta(
+    state: SessionState,
+    message: str,
+    payload: object,
+) -> bool:
+    """Validate and apply an LLM proposal on top of deterministic parsing."""
+    delta = _validated_llm_delta(payload)
+    if delta is None:
+        return False
+
+    source_turn = sum(item.get("role") == "user" for item in state.history)
+    cleared_attributes = set(delta["clear"])
+    reopened_attributes = set(cleared_attributes)
+    if delta["intent_changed"]:
+        state.override_seen = True
+        category_change_clears = _clear_for_category_change(state)
+        cleared_attributes.update(category_change_clears)
+        reopened_attributes.update(category_change_clears)
+
+    for attribute in cleared_attributes:
+        _clear_attribute(state, attribute)
+
+    for attribute, values in delta["exclude"].items():
+        for value in values:
+            normalized = _clean_value(value)
+            if not normalized:
+                continue
+            state.excluded_constraints[attribute].add(normalized)
+            _remove_matching_evidence(state, attribute, normalized)
+            cleared_attributes.add(attribute)
+            reopened_attributes.add(attribute)
+
+    newly_marked_no_preference = False
+    for attribute in delta["no_preference"]:
+        newly_marked_no_preference |= attribute not in state.no_preference_attributes
+        state.no_preference_attributes.add(attribute)
+        if attribute in CONSTRAINT_KEYS:
+            _clear_attribute(state, attribute)
+            cleared_attributes.add(attribute)
+
+    for attribute, entry in delta["set"].items():
+        value = entry["value"]
+        if attribute == "budget" and isinstance(value, str):
+            parsed_budget = _budget_from_message(value)
+            if parsed_budget is None:
+                try:
+                    parsed_budget = float(value.replace("$", "").replace(",", "").strip())
+                except ValueError:
+                    continue
+            value = parsed_budget
+        _record_constraint(
+            state=state,
+            attribute=attribute,
+            value=value,
+            source_turn=source_turn,
+            source_message=message,
+            source_kind=f"llm_{entry['priority']}",
+            replace=(
+                attribute in cleared_attributes
+                or attribute not in {"material", "feature", "use_case"}
+            ),
+        )
+
+    if delta["set"]:
+        state.consecutive_no_preference = 0
+    elif newly_marked_no_preference:
+        state.consecutive_no_preference += 1
+    _reopen_cleared_questions(state, reopened_attributes)
+    return True
+
+
+def validated_llm_clarification(
+    state: SessionState,
+    turn: int,
+    fallback_attribute: str | None,
+    payload: object,
+    *,
+    allow_attribute_override: bool = False,
+) -> tuple[str | None, str] | None:
+    """Accept only a useful, contract-safe LLM clarification proposal."""
+    if not isinstance(payload, dict):
+        return None
+    if set(payload) != {"ask_attribute", "response_message", "reason", "confidence"}:
+        return None
+    confidence = payload["confidence"]
+    if (
+        isinstance(confidence, bool)
+        or not isinstance(confidence, (int, float))
+        or not 0 <= float(confidence) <= 1
+        or float(confidence) < 0.65
+    ):
+        return None
+    if not isinstance(payload["reason"], str):
+        return None
+
+    ask_attribute = payload["ask_attribute"]
+    if ask_attribute is not None and ask_attribute not in ALLOWED_ATTRIBUTES:
+        return None
+    if not allow_attribute_override and ask_attribute != fallback_attribute:
+        return None
+    if turn >= 10 and ask_attribute is not None:
+        return None
+    if ask_attribute is None and fallback_attribute is not None:
+        return None
+    if ask_attribute in state.no_preference_attributes:
+        return None
+    if ask_attribute == "other":
+        if state.other_questions_asked >= 2:
+            return None
+    elif ask_attribute is not None:
+        if ask_attribute in state.asked_attributes:
+            return None
+        if state.constraints[ask_attribute] is not None:
+            return None
+
+    message = payload["response_message"]
+    if not isinstance(message, str):
+        return None
+    message = re.sub(r"\s+", " ", message).strip()
+    if ask_attribute is not None and (not message or len(message) > 240):
+        return None
+    if ask_attribute is None:
+        message = message or response_message(None)
+    return ask_attribute, message
+
+
+def update_state(state: SessionState, message: str) -> bool:
+    """Apply deterministic parsing and return True when the message was fully
+    handled (no-preference reply, override, or extracted constraints), so the
+    caller can skip the LLM interpretation pass."""
     source_turn = 1 + sum(item["role"] == "user" for item in state.history)
     state.history.append({"role": "user", "message": message})
     if _mark_no_preference(state, message):
-        return
+        return True
 
     is_override = OVERRIDE_RE.search(message) is not None
     updates = extract_constraints(state, message)
@@ -664,6 +918,11 @@ def update_state(state: SessionState, message: str) -> None:
         )
 
     _reopen_cleared_questions(state, cleared_attributes)
+    return (
+        bool(updates)
+        or is_override
+        or REQUEST_ATTRIBUTE_RE.search(message) is not None
+    )
 
 
 def choose_clarification(state: SessionState, turn: int) -> str | None:

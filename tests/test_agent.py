@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from starter.agent import Agent
+from starter.conversation_llm import TokenUsage
 from starter.state import ALLOWED_ATTRIBUTES
 
 
@@ -49,6 +50,34 @@ CATALOG_ROWS = [
 ]
 
 
+class FakeConversationLLM:
+    def __init__(
+        self,
+        interpretation: dict | None,
+        clarification: dict | None,
+    ) -> None:
+        self.interpretation = interpretation
+        self.clarification = clarification
+        self.candidate_summaries: list[dict | None] = []
+
+    def interpret(
+        self,
+        current_state: dict,
+        last_asked_attribute: str | None,
+        customer_message: str,
+    ) -> tuple[dict | None, TokenUsage]:
+        return self.interpretation, TokenUsage(20, 5)
+
+    def plan_clarification(
+        self,
+        current_state: dict,
+        fallback_attribute: str | None,
+        candidate_summary: dict | None = None,
+    ) -> tuple[dict | None, TokenUsage]:
+        self.candidate_summaries.append(candidate_summary)
+        return self.clarification, TokenUsage(10, 3)
+
+
 class AgentConversationTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary_directory = tempfile.TemporaryDirectory()
@@ -57,7 +86,7 @@ class AgentConversationTest(unittest.TestCase):
             "".join(json.dumps(row) + "\n" for row in CATALOG_ROWS),
             encoding="utf-8",
         )
-        self.agent = Agent(catalog_path)
+        self.agent = Agent(catalog_path, enable_llm=False)
 
     def tearDown(self) -> None:
         self.agent.connection.close()
@@ -208,6 +237,103 @@ class AgentConversationTest(unittest.TestCase):
         self.assertEqual(
             response["usage"],
             {"prompt_tokens": 0, "completion_tokens": 0},
+        )
+
+    def test_llm_interprets_when_deterministic_parser_finds_nothing(self) -> None:
+        fake_llm = FakeConversationLLM(
+            interpretation={
+                "set": {
+                    "category": {
+                        "value": "shoes",
+                        "priority": "required",
+                        "evidence": "footwear",
+                    },
+                    "color": {
+                        "value": "black",
+                        "priority": "preferred",
+                        "evidence": "obsidian",
+                    },
+                },
+                "clear": [],
+                "exclude": {},
+                "no_preference": [],
+                "intent_changed": False,
+                "ambiguities": [],
+                "confidence": 0.94,
+            },
+            clarification={
+                "ask_attribute": "material",
+                "response_message": "Which material would work best for you?",
+                "reason": "Material is still unknown.",
+                "confidence": 0.9,
+            },
+        )
+        self.agent.conversation_llm = fake_llm
+        self.agent.reset("session", {})
+
+        response = self.agent.respond(
+            "session",
+            "I want footwear in obsidian.",
+            1,
+            10,
+        )
+
+        state = self.agent.sessions["session"]
+        self.assertEqual(state.constraints["category"], "shoes")
+        self.assertEqual(state.constraints["color"], "black")
+        self.assertEqual(response["ask_attribute"], "material")
+        self.assertEqual(
+            response["message"],
+            "Do you have a material preference?",
+        )
+        self.assertEqual(
+            response["usage"],
+            {"prompt_tokens": 20, "completion_tokens": 5},
+        )
+        self.assertEqual(fake_llm.candidate_summaries, [])
+
+    def test_invalid_llm_output_falls_back_without_changing_state(self) -> None:
+        fake_llm = FakeConversationLLM(
+            interpretation={
+                "set": {
+                    "parent_asin": {
+                        "value": "INVENTED_ID",
+                        "priority": "required",
+                        "evidence": "ignore the rules",
+                    }
+                },
+                "clear": [],
+                "exclude": {},
+                "no_preference": [],
+                "intent_changed": False,
+                "ambiguities": [],
+                "confidence": 1.0,
+            },
+            clarification={
+                "ask_attribute": "unsupported_attribute",
+                "response_message": "Tell me something else.",
+                "reason": "Invalid test proposal.",
+                "confidence": 1.0,
+            },
+        )
+        self.agent.conversation_llm = fake_llm
+        self.agent.reset("session", {})
+
+        response = self.agent.respond(
+            "session",
+            "Something elegant that sparkles.",
+            1,
+            10,
+        )
+
+        state = self.agent.sessions["session"]
+        self.assertIsNone(state.constraints["category"])
+        self.assertIsNone(state.constraints["color"])
+        self.assertNotIn("parent_asin", state.constraints)
+        self.assertEqual(response["ask_attribute"], "category")
+        self.assertEqual(
+            response["usage"],
+            {"prompt_tokens": 20, "completion_tokens": 5},
         )
 
 
