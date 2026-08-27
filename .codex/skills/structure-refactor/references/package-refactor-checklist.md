@@ -1,94 +1,52 @@
-# Package Refactor Checklist
+# Shopping Agent Structural Refactor Checklist
 
-Use this checklist before and after moving code between packages.
+Use this checklist before and after moving code in `starter/`.
 
 ## Audit
 
-- Run `git status --short` and treat unrelated changes as user work.
-- List the target package files and existing subpackages.
-- Search for old package paths and exported symbols in:
-  - backend and frontend imports
-  - tests and fixtures
-  - docs and README commands
-  - route registration and worker entrypoints
-  - package `__init__.py` exports
-  - scripts and config files
-- Identify compatibility shims separately from implementation files.
+- Run `git status --short`; preserve unrelated work.
+- Read `context.md`, `README.md`, and `docs/agent_api_contract.json`.
+- Identify which responsibility is moving: evaluator facade, session state,
+  constraint parsing, clarification policy, catalog retrieval, ranking, or
+  response formatting.
+- Search references in `starter/`, `tests/`, `evaluator/`, docs, and commands
+  before changing module paths or exported names.
+- Record the relevant current evaluator metrics before making the refactor.
 
 ## Target Layout
 
-- Group files by domain responsibility:
-  - orchestration/coordinator files stay near the package root when they connect
-    several subdomains
-  - domain implementation files move into focused subpackages
-  - helper modules move with the domain that owns their rules
-- Prefer clear names such as `long_term`, `short_term`, `ingestion`, `routing`,
-  `verification`, or `formatting` over generic buckets.
-- Keep root `__init__.py` exports stable if callers already import from the
-  package root.
+- Keep `starter/agent.py` as the evaluator-facing `Agent` entry point.
+- Keep catalog I/O, FTS5/BM25, and candidate ranking within `starter/retrieval`
+  or a tightly focused retrieval subpackage.
+- Place mutable conversation state behind one explicit owner, preferably a small
+  dataclass plus a session store/coordinator when state becomes non-trivial.
+- Keep deterministic parsing and question selection separate if they have
+  independent rules or tests.
+- Keep pure utility functions near the domain that owns their rule; do not add a
+  generic `utils.py` bucket.
+- Prefer a small number of cohesive modules over a deep hierarchy or needless
+  object wrappers.
 
-## Moving Files
+## Safe Moves
 
-- Move implementation first, then patch relative imports.
-- Add subpackage `__init__.py` files that export the public service classes,
-  constants, and helper functions expected by callers.
-- Update tests to import from the new canonical path unless root exports are the
-  intended public surface.
-- Update docs in the same batch as code moves.
-- Avoid creating compatibility wrappers unless a public import path cannot be
-  migrated safely in the same change.
-
-## Compatibility Shims
-
-- Keep a shim only when README commands, external scripts, operational docs, or
-  user-facing CLIs still reference the old module.
-- Remove a shim when a stale-reference search proves the old module name is no
-  longer used.
-- After removing a shim, update README/docs to name the single canonical command.
+- Move one responsibility at a time.
+- Keep constructor, `reset`, and `respond` signatures stable.
+- Preserve the `search(query, constraints, top_k)` contract and `SearchResult`
+  shape for retrieval callers.
+- Update imports, unit tests, and relevant documentation together.
+- Add a temporary compatibility re-export only for an active import that cannot
+  be migrated immediately; delete it once no active references remain.
+- Do not mix a structural refactor with ranking, extraction, or dialogue-policy
+  experiments unless those behaviour changes are explicitly requested.
 
 ## Verification
 
-- Backend structural refactor:
-  - `python -m compileall backend\app`
-  - focused pytest for the moved subsystem
-  - `python -m pytest backend\tests` when shared imports, routes, graph chat, AI,
-    memory, or workers are touched
-- Frontend structural refactor:
-  - `npm run build` from `frontend`
-  - typecheck when available
-- Always search for stale old paths after the move.
-- Remove generated `__pycache__` folders under touched Python packages after
-  verification.
-
-## Memory Package Example
-
-For a memory package split, prefer a layout like:
-
-```text
-memory/
-  __init__.py
-  coordinator.py
-  routing.py
-  tool_trace.py
-  long_term/
-    __init__.py
-    service.py
-    curation.py
-    retrieval_evaluation/
-  short_term/
-    __init__.py
-    session_memory.py
-    session_context.py
-    short_term_memory.py
-    write_guard.py
-  ingestion/
-    __init__.py
-    pipeline.py
-    rag_evidence_verifier.py
-    worker.py
-```
-
-Preserve `backend.app.services.memory` exports when existing graph chat, routes,
-or tests import from the package root. Collapse duplicate app-level worker shims
-into one canonical `memory_worker.py` only after references to older module
-names are removed.
+- Run focused tests for the moved code, then `python -m pytest` when shared
+  imports change.
+- Run `python -m evaluator.local_evaluator` and compare overall and per-scenario
+  Hit Rate@10, MRR, and MTTC with the pre-refactor result.
+- Confirm all returned recommendations remain unique real `parent_asin` values
+  and there are at most ten per turn.
+- Search for stale module paths, exports, and obsolete documentation.
+- Report preserved contracts, changed locations, checks run, metric comparison,
+  and deferred work.
