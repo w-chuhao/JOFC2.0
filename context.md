@@ -108,6 +108,27 @@ All contributors write tests and participate in daily integration. See `PROJECT_
 - A correct target in the Top 10 ends that session immediately. Early accurate recommendations are valuable.
 - The evaluator simulates customer replies based on the attribute requested in `ask_attribute`; it is not a human user or a second shopping agent.
 
+## End-to-end turn pipeline
+
+The proposed Person 2 / Person 1 pipeline is:
+
+1. The user sends a query.
+2. Person 2's LLM interprets it as a structured `StateDelta`.
+3. Person 2 validates the proposed delta and applies it to conversation state.
+4. Person 1 searches and ranks the catalogue using the updated state.
+5. Person 1 returns the Top 10 product IDs and candidate attribute statistics.
+6. Person 2's LLM proposes the most useful allowed `ask_attribute`.
+7. Person 2 validates the clarification proposal.
+8. The agent returns the Top 10 product IDs, a clarifying question, and the validated `ask_attribute`.
+
+When the customer answers, repeat from step 2 using the existing session state:
+
+```text
+Customer answer -> update state -> search again -> ask the next useful question
+```
+
+Both LLM outputs are proposals only. Deterministic code owns validation, state mutation, catalogue access, product IDs, and the final evaluator-facing response. If the LLM or candidate statistics are unavailable, preserve the deterministic fallback.
+
 ## Before declaring work complete
 
 - Run `python -m evaluator.local_evaluator` successfully.
