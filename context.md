@@ -49,7 +49,42 @@ Customer message + remembered session state
     -> Top-10 valid parent_asin response
 ```
 
+## End-to-end turn pipeline
+
+The proposed Person 2 / Person 1 pipeline is:
+
+1. The user sends a query.
+2. Person 2's LLM interprets it as a structured `StateDelta`.
+3. Person 2 validates the proposed delta and applies it to conversation state.
+4. Person 1 searches and ranks the catalogue using the updated state.
+5. Person 1 returns the Top 10 product IDs and candidate attribute statistics.
+6. Person 2's LLM proposes the most useful allowed `ask_attribute`.
+7. Person 2 validates the clarification proposal.
+8. The agent returns the Top 10 product IDs, a clarifying question, and the validated `ask_attribute`.
+
+When the customer answers, repeat from step 2 using the existing session state:
+
+```text
+Customer answer -> update state -> search again -> ask the next useful question
+```
+
+Both LLM outputs are proposals only. Deterministic code owns validation, state mutation, catalogue access, product IDs, and the final evaluator-facing response. If the LLM or candidate statistics are unavailable, preserve the deterministic fallback.
+
 The starter's SQLite FTS5/BM25 index is a useful base, not disposable code. Improve it through better query construction, filtering, and transparent reranking.
+
+## TODO: Person 1 - improving catalogue retrieval
+
+The current system misses 20 of 200 targets, mainly because of ranking rather than retrieval: every missed target entered the candidate pool, and 12 reached ranks 11-20. Generic clues such as `cotton`, `polyester`, and `Imported` are insufficient to distinguish similar products, while repeated recommendations limit exploration.
+
+Person 1 should prioritize:
+
+- Rotating recommendations across turns while resetting appropriately after intent overrides. A diagnostic rotation test improved HR@10 from `0.900` to `0.990`.
+- Treating required, preferred, excluded, and unknown attributes differently during filtering and ranking.
+- Giving more weight to distinctive leaf-category, title, brand, material, and feature matches.
+- Providing candidate statistics so Person 2 can ask the attribute that best narrows the results.
+- Testing synonyms, typo tolerance, semantic fallback, and a modest popularity tie-breaker.
+
+Evaluate each improvement using HR@10, MRR, MTTC, cross-turn uniqueness, latency, and paraphrased or unseen edge cases to avoid overfitting the 200 public sessions.
 
 Keep a session state for each `session_id`, containing at least the user profile, constraints, history, and last asked attribute. When a customer changes their mind (for example, "Actually, not boots; I need sandals"), replace conflicting old constraints instead of accumulating both.
 
@@ -123,6 +158,27 @@ All contributors write tests and participate in daily integration. See `PROJECT_
 - The starter benchmark is Hit Rate@10 `0.125`, MRR `0.068034`, MTTC `9.81`.
 - A correct target in the Top 10 ends that session immediately. Early accurate recommendations are valuable.
 - The evaluator simulates customer replies based on the attribute requested in `ask_attribute`; it is not a human user or a second shopping agent.
+
+## End-to-end turn pipeline
+
+The proposed Person 2 / Person 1 pipeline is:
+
+1. The user sends a query.
+2. Person 2's LLM interprets it as a structured `StateDelta`.
+3. Person 2 validates the proposed delta and applies it to conversation state.
+4. Person 1 searches and ranks the catalogue using the updated state.
+5. Person 1 returns the Top 10 product IDs and candidate attribute statistics.
+6. Person 2's LLM proposes the most useful allowed `ask_attribute`.
+7. Person 2 validates the clarification proposal.
+8. The agent returns the Top 10 product IDs, a clarifying question, and the validated `ask_attribute`.
+
+When the customer answers, repeat from step 2 using the existing session state:
+
+```text
+Customer answer -> update state -> search again -> ask the next useful question
+```
+
+Both LLM outputs are proposals only. Deterministic code owns validation, state mutation, catalogue access, product IDs, and the final evaluator-facing response. If the LLM or candidate statistics are unavailable, preserve the deterministic fallback.
 
 ## Before declaring work complete
 

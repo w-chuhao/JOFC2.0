@@ -1,0 +1,992 @@
+from __future__ import annotations
+
+import copy
+import re
+from dataclasses import dataclass, field
+
+
+CONSTRAINT_KEYS = (
+    "category",
+    "material",
+    "color",
+    "size",
+    "style",
+    "brand",
+    "budget",
+    "feature",
+    "use_case",
+)
+ALLOWED_ATTRIBUTES = frozenset((*CONSTRAINT_KEYS, "other"))
+
+QUESTION_ORDER = (
+    "category",
+    "material",
+    "feature",
+    "color",
+    "style",
+    "size",
+    "use_case",
+    "other",
+    "budget",
+    "brand",
+)
+
+QUESTION_MESSAGES = {
+    "category": "What type of product are you looking for?",
+    "material": "Do you have a material preference?",
+    "color": "Do you have a color preference?",
+    "size": "What size or fit do you need?",
+    "style": "What style do you prefer?",
+    "brand": "Do you have a preferred brand?",
+    "budget": "What budget should I stay within?",
+    "feature": "Which product feature matters most to you?",
+    "use_case": "What will you mainly use the product for?",
+    "other": "Is there another requirement that matters to you?",
+}
+
+MATERIALS = (
+    "stainless steel",
+    "polyester",
+    "leather",
+    "spandex",
+    "acrylic",
+    "cotton",
+    "nylon",
+    "wool",
+    "silk",
+    "rayon",
+    "fabric",
+    "alloy",
+    "denim",
+    "suede",
+    "canvas",
+    "rubber",
+    "fleece",
+    "velvet",
+    "linen",
+    "modal",
+)
+COLORS = (
+    "rose gold",
+    "black",
+    "white",
+    "blue",
+    "red",
+    "pink",
+    "green",
+    "brown",
+    "gray",
+    "grey",
+    "purple",
+    "yellow",
+    "orange",
+    "gold",
+    "silver",
+    "beige",
+    "navy",
+)
+CATEGORY_WORDS = (
+    "accessories",
+    "activewear",
+    "backpacks",
+    "bodysuits",
+    "bracelets",
+    "cardigans",
+    "earrings",
+    "flip flops",
+    "handbags",
+    "jumpsuits",
+    "necklaces",
+    "sneakers",
+    "sweatshirts",
+    "swimsuits",
+    "underwear",
+    "wallets",
+    "watches",
+    "backpack",
+    "bodysuit",
+    "bracelet",
+    "cardigan",
+    "earring",
+    "handbag",
+    "jumpsuit",
+    "necklace",
+    "sneaker",
+    "sweatshirt",
+    "swimsuit",
+    "wallet",
+    "watch",
+    "leggings",
+    "sandals",
+    "dresses",
+    "jackets",
+    "hoodies",
+    "blouses",
+    "sweaters",
+    "shorts",
+    "skirts",
+    "shirts",
+    "shoes",
+    "boots",
+    "belts",
+    "purses",
+    "jewelry",
+    "gloves",
+    "pants",
+    "socks",
+    "suits",
+    "tops",
+    "dress",
+    "jacket",
+    "hoodie",
+    "blouse",
+    "sweater",
+    "skirt",
+    "shirt",
+    "belt",
+    "purse",
+    "glove",
+    "suit",
+    "coat",
+    "hat",
+    "ring",
+    "bra",
+)
+STYLES = (
+    "business casual",
+    "formal",
+    "casual",
+    "vintage",
+    "classic",
+    "modern",
+    "sporty",
+    "slim fit",
+    "relaxed fit",
+    "oversized",
+    "minimalist",
+)
+USE_CASES = (
+    "basketball",
+    "running",
+    "hiking",
+    "walking",
+    "workout",
+    "work",
+    "gym",
+    "winter",
+    "outdoor",
+    "travel",
+    "wedding",
+    "swimming",
+)
+
+
+def _alternatives(values: tuple[str, ...]) -> str:
+    return "|".join(re.escape(value) for value in sorted(values, key=len, reverse=True))
+
+
+MATERIAL_RE = re.compile(rf"\b({_alternatives(MATERIALS)})\b", re.IGNORECASE)
+COLOR_RE = re.compile(rf"\b({_alternatives(COLORS)})\b", re.IGNORECASE)
+CATEGORY_RE = re.compile(rf"\b({_alternatives(CATEGORY_WORDS)})\b", re.IGNORECASE)
+STYLE_RE = re.compile(rf"\b({_alternatives(STYLES)})\b", re.IGNORECASE)
+USE_CASE_RE = re.compile(rf"\b({_alternatives(USE_CASES)})\b", re.IGNORECASE)
+
+REVEALED_VALUE_RE = re.compile(
+    r"\bfor that,\s*what matters is:\s*(.+?)(?:\.\s*)?$",
+    re.IGNORECASE,
+)
+DISCLOSED_REQUIREMENT_RE = re.compile(
+    r"\b(?:a key requirement is|what i need is):\s*(.+?)(?:\.\s*)?$",
+    re.IGNORECASE,
+)
+NO_PREFERENCE_RE = re.compile(
+    r"\b(?:do not|don't) have (?:an? |any |an additional )?preference for\s+([a-z_]+)",
+    re.IGNORECASE,
+)
+BRAND_RE = re.compile(
+    r"\bbrand\s*(?:is|:)?\s*([a-z0-9][a-z0-9 &'’-]{1,50})",
+    re.IGNORECASE,
+)
+SIZE_RE = re.compile(
+    r"\bsize\s*(?:is|:)?\s*([a-z0-9][a-z0-9./-]{0,12})",
+    re.IGNORECASE,
+)
+BUDGET_RE = re.compile(
+    r"\b(?:budget(?:\s+(?:is|of|around))?|under|below|less than|up to|max(?:imum)?)"
+    r"\s*\$?\s*(?P<amount>\d+(?:\.\d{1,2})?)"
+    r"(?!\s*(?:-|–)?\s*(?:inches?|in\b|centimeters?|cm\b|millimeters?|mm\b|"
+    r"ounces?|oz\b|pounds?|lbs?\b|percent|%|wrist|size\b))",
+    re.IGNORECASE,
+)
+LABELED_VALUE_RE = re.compile(
+    r"\b(category|material|colou?r|size|style|brand|budget|feature|use[_ ]?case)\b"
+    r"\s*(?:is|:)\s*([^.;]+)",
+    re.IGNORECASE,
+)
+LOOKING_FOR_RE = re.compile(
+    r"\b(?:looking|shopping) for\s+(?:an?\s+|some\s+)?(.+?)(?=[.;]|,\s*but\b|$)",
+    re.IGNORECASE,
+)
+DIRECT_REQUEST_RE = re.compile(
+    r"\b(?:i\s+)?(?:need|want)\s+(?:an?\s+|some\s+)?(.+?)(?=[.;]|$)",
+    re.IGNORECASE,
+)
+OVERRIDE_RE = re.compile(
+    r"\b(?:actually|instead|ignore|rather|changed my mind|no longer)\b",
+    re.IGNORECASE,
+)
+BLANKET_OVERRIDE_RE = re.compile(
+    r"\b(?:ignore|forget) (?:my )?(?:earlier|previous|old) preference",
+    re.IGNORECASE,
+)
+NEGATED_VALUE_RE = re.compile(
+    r"\b(?:not|without|avoid|anything except)\s+(.+?)"
+    r"(?=[.;]|,?\s+(?:but|instead|rather)\b|$)",
+    re.IGNORECASE,
+)
+REQUEST_ATTRIBUTE_RE = re.compile(
+    r"\bask me about (?:one |a )?specific attribute\b",
+    re.IGNORECASE,
+)
+
+
+ConstraintValue = str | float | None
+
+
+@dataclass(frozen=True, slots=True)
+class ConstraintEvidence:
+    value: str | float
+    source_turn: int
+    source_message: str
+    source_kind: str
+
+
+def empty_constraints() -> dict[str, ConstraintValue]:
+    return {key: None for key in CONSTRAINT_KEYS}
+
+
+def empty_evidence() -> dict[str, list[ConstraintEvidence]]:
+    return {key: [] for key in CONSTRAINT_KEYS}
+
+
+def empty_exclusions() -> dict[str, set[str]]:
+    return {key: set() for key in CONSTRAINT_KEYS}
+
+
+@dataclass
+class SessionState:
+    user_profile: dict
+    constraints: dict[str, ConstraintValue] = field(default_factory=empty_constraints)
+    constraint_evidence: dict[str, list[ConstraintEvidence]] = field(
+        default_factory=empty_evidence
+    )
+    excluded_constraints: dict[str, set[str]] = field(default_factory=empty_exclusions)
+    history: list[dict[str, object]] = field(default_factory=list)
+    last_asked_attribute: str | None = None
+    asked_attributes: set[str] = field(default_factory=set)
+    no_preference_attributes: set[str] = field(default_factory=set)
+    consecutive_no_preference: int = 0
+    other_questions_asked: int = 0
+    override_seen: bool = False
+
+    @classmethod
+    def create(cls, user_profile: dict) -> SessionState:
+        return cls(user_profile=copy.deepcopy(user_profile))
+
+    def search_text(self) -> str:
+        values: list[str] = []
+        seen: set[str] = set()
+        for key in CONSTRAINT_KEYS:
+            value = self.constraints[key]
+            if value is None:
+                continue
+            text = str(value).strip()
+            lowered = text.casefold()
+            if text and lowered not in seen:
+                seen.add(lowered)
+                values.append(text)
+        return " ".join(values)
+
+
+def _clean_value(value: str) -> str:
+    return re.sub(r"\s+", " ", value).strip(" \t\r\n.,;:-").lower()
+
+
+def _last_match(pattern: re.Pattern[str], message: str) -> str | None:
+    matches = list(pattern.finditer(message))
+    return _clean_value(matches[-1].group(1)) if matches else None
+
+
+def _category_from_message(message: str) -> str | None:
+    looking_matches = list(LOOKING_FOR_RE.finditer(message))
+    direct_matches = list(DIRECT_REQUEST_RE.finditer(message))
+    request_segments = [match.group(1) for match in (*looking_matches, *direct_matches)]
+    for segment in reversed(request_segments):
+        category = _last_match(CATEGORY_RE, segment)
+        if category:
+            return category
+
+    if not looking_matches:
+        return None
+    candidate = _clean_value(looking_matches[-1].group(1))
+    if candidate in {"something", "something to wear", "anything", "clothing item"}:
+        return None
+    words = candidate.split()
+    return candidate if 0 < len(words) <= 12 else None
+
+
+def _budget_from_message(message: str) -> float | None:
+    matches = list(BUDGET_RE.finditer(message))
+    return float(matches[-1].group("amount")) if matches else None
+
+
+def _merge_update(
+    updates: dict[str, ConstraintValue],
+    attribute: str,
+    value: str | float,
+) -> None:
+    current = updates.get(attribute)
+    if current is None or attribute not in {"material", "feature", "use_case"}:
+        updates[attribute] = value
+        return
+
+    current_text = str(current).strip()
+    value_text = str(value).strip()
+    if not value_text or value_text.casefold() in current_text.casefold():
+        return
+    updates[attribute] = f"{current_text}; {value_text}"
+
+
+def _labeled_updates(message: str) -> dict[str, ConstraintValue]:
+    updates: dict[str, ConstraintValue] = {}
+    for match in LABELED_VALUE_RE.finditer(message):
+        key = match.group(1).lower().replace("colour", "color").replace(" ", "_")
+        value = _clean_value(match.group(2))
+        if key == "budget":
+            budget = _budget_from_message(match.group(0))
+            if budget is not None:
+                updates[key] = budget
+        elif key in CONSTRAINT_KEYS and value:
+            updates[key] = value
+    return updates
+
+
+def _classify_value(value: str) -> str:
+    if _budget_from_message(value) is not None:
+        return "budget"
+    if re.search(r"\brubber sole\b", value, re.IGNORECASE):
+        return "feature"
+    if MATERIAL_RE.search(value):
+        return "material"
+    if COLOR_RE.search(value):
+        return "color"
+    if SIZE_RE.search(value):
+        return "size"
+    if STYLE_RE.search(value):
+        return "style"
+    if USE_CASE_RE.search(value):
+        return "use_case"
+    if BRAND_RE.search(value):
+        return "brand"
+    return "feature"
+
+
+def _revealed_updates(value: str, asked_attribute: str | None) -> dict[str, str]:
+    if asked_attribute in CONSTRAINT_KEYS:
+        return {asked_attribute: value}
+
+    updates: dict[str, ConstraintValue] = {}
+    clauses = [_clean_value(clause) for clause in value.split(";")]
+    for clause in clauses:
+        if not clause:
+            continue
+        _merge_update(updates, _classify_value(clause), clause)
+    return {key: str(item) for key, item in updates.items() if item is not None}
+
+
+def extract_constraints(state: SessionState, message: str) -> dict[str, ConstraintValue]:
+    updates = _labeled_updates(message)
+
+    revealed = REVEALED_VALUE_RE.search(message)
+    if revealed:
+        value = _clean_value(revealed.group(1))
+        if value:
+            for attribute, revealed_value in _revealed_updates(
+                value,
+                state.last_asked_attribute,
+            ).items():
+                _merge_update(updates, attribute, revealed_value)
+
+    disclosed = DISCLOSED_REQUIREMENT_RE.search(message)
+    if disclosed:
+        value = _clean_value(disclosed.group(1))
+        if value:
+            updates.setdefault(_classify_value(value), value)
+
+    direct_values = {
+        "category": _category_from_message(message),
+        "material": _last_match(MATERIAL_RE, message),
+        "color": _last_match(COLOR_RE, message),
+        "style": _last_match(STYLE_RE, message),
+        "use_case": _last_match(USE_CASE_RE, message),
+    }
+    for key, value in direct_values.items():
+        if value and key not in updates:
+            updates[key] = value
+
+    size_matches = list(SIZE_RE.finditer(message))
+    if size_matches and "size" not in updates:
+        updates["size"] = _clean_value(size_matches[-1].group(1))
+
+    brand_matches = list(BRAND_RE.finditer(message))
+    if brand_matches and "brand" not in updates:
+        updates["brand"] = _clean_value(brand_matches[-1].group(1))
+
+    budget = _budget_from_message(message)
+    if budget is not None and "budget" not in updates:
+        updates["budget"] = budget
+
+    return updates
+
+
+def _refresh_constraint(state: SessionState, attribute: str) -> None:
+    evidence = state.constraint_evidence[attribute]
+    if not evidence:
+        state.constraints[attribute] = None
+        return
+
+    if attribute not in {"material", "feature", "use_case"}:
+        state.constraints[attribute] = evidence[-1].value
+        return
+
+    values: list[str] = []
+    seen: set[str] = set()
+    for item in evidence:
+        text = str(item.value).strip()
+        normalized = text.casefold()
+        if text and normalized not in seen:
+            seen.add(normalized)
+            values.append(text)
+    state.constraints[attribute] = "; ".join(values) if values else None
+
+
+def _clear_attribute(state: SessionState, attribute: str) -> None:
+    state.constraint_evidence[attribute].clear()
+    state.constraints[attribute] = None
+
+
+def _remove_matching_evidence(
+    state: SessionState,
+    attribute: str,
+    value: str,
+) -> bool:
+    normalized = value.strip().casefold()
+    if not normalized:
+        return False
+    retained = [
+        item
+        for item in state.constraint_evidence[attribute]
+        if normalized not in str(item.value).strip().casefold()
+    ]
+    if len(retained) == len(state.constraint_evidence[attribute]):
+        return False
+    state.constraint_evidence[attribute] = retained
+    _refresh_constraint(state, attribute)
+    return True
+
+
+def _record_constraint(
+    state: SessionState,
+    attribute: str,
+    value: str | float,
+    source_turn: int,
+    source_message: str,
+    source_kind: str,
+    replace: bool,
+) -> None:
+    if attribute == "budget" and isinstance(value, str):
+        parsed_budget = _budget_from_message(value)
+        if parsed_budget is not None:
+            value = parsed_budget
+
+    evidence = state.constraint_evidence[attribute]
+    if replace:
+        evidence.clear()
+
+    normalized = str(value).strip().casefold()
+    already_recorded_this_turn = any(
+        str(item.value).strip().casefold() == normalized
+        and item.source_turn == source_turn
+        for item in evidence
+    )
+    if not already_recorded_this_turn:
+        evidence.append(
+            ConstraintEvidence(
+                value=value,
+                source_turn=source_turn,
+                source_message=source_message,
+                source_kind=source_kind,
+            )
+        )
+    state.excluded_constraints[attribute].discard(normalized)
+    state.no_preference_attributes.discard(attribute)
+    _refresh_constraint(state, attribute)
+
+
+def _source_kind(
+    message: str,
+    attribute: str,
+    source_turn: int,
+    is_override: bool,
+) -> str:
+    if is_override:
+        return "override"
+    if REVEALED_VALUE_RE.search(message):
+        return "clarification"
+    if DISCLOSED_REQUIREMENT_RE.search(message):
+        return "disclosed"
+    if source_turn == 1 and attribute != "category":
+        return "initial_preference"
+    return "direct"
+
+
+def _mark_no_preference(state: SessionState, message: str) -> bool:
+    match = NO_PREFERENCE_RE.search(message)
+    if not match:
+        return False
+    attribute = match.group(1).lower()
+    if attribute not in ALLOWED_ATTRIBUTES:
+        attribute = state.last_asked_attribute or "other"
+    state.no_preference_attributes.add(attribute)
+    state.consecutive_no_preference += 1
+    if attribute in CONSTRAINT_KEYS:
+        _clear_attribute(state, attribute)
+    return True
+
+
+def _clear_overridden_values(state: SessionState, message: str) -> set[str]:
+    cleared_attributes: set[str] = set()
+    if BLANKET_OVERRIDE_RE.search(message):
+        for key in CONSTRAINT_KEYS:
+            if key == "category":
+                continue
+            retained = [
+                item
+                for item in state.constraint_evidence[key]
+                if item.source_kind != "initial_preference"
+            ]
+            if len(retained) != len(state.constraint_evidence[key]):
+                state.constraint_evidence[key] = retained
+                _refresh_constraint(state, key)
+                cleared_attributes.add(key)
+
+    lowered = message.lower()
+    for key in CONSTRAINT_KEYS:
+        for item in list(state.constraint_evidence[key]):
+            value = str(item.value).strip().casefold()
+            escaped = re.escape(value)
+            if re.search(rf"\b(?:not|without|ignore)\b[^.;]*\b{escaped}\b", lowered):
+                state.excluded_constraints[key].add(value)
+                if _remove_matching_evidence(state, key, value):
+                    cleared_attributes.add(key)
+
+    for match in NEGATED_VALUE_RE.finditer(message):
+        value = _clean_value(match.group(1))
+        if not value or value in {"my earlier preference", "my previous preference"}:
+            continue
+        attribute = _classify_value(value)
+        state.excluded_constraints[attribute].add(value)
+        _remove_matching_evidence(state, attribute, value)
+        cleared_attributes.add(attribute)
+
+    return cleared_attributes
+
+
+def _clear_for_category_change(state: SessionState) -> set[str]:
+    cleared_attributes: set[str] = set()
+    for attribute in CONSTRAINT_KEYS:
+        if attribute == "category":
+            continue
+        if state.constraints[attribute] is not None:
+            _clear_attribute(state, attribute)
+            cleared_attributes.add(attribute)
+    return cleared_attributes
+
+
+def _reopen_cleared_questions(
+    state: SessionState,
+    cleared_attributes: set[str],
+) -> None:
+    for attribute in cleared_attributes:
+        if state.constraints[attribute] is not None:
+            continue
+        state.asked_attributes.discard(attribute)
+        state.no_preference_attributes.discard(attribute)
+
+
+def state_for_llm(state: SessionState) -> dict[str, object]:
+    """Return a compact, secret-free view of conversation state for the LLM."""
+    return {
+        "constraints": copy.deepcopy(state.constraints),
+        "excluded_constraints": {
+            key: sorted(values)
+            for key, values in state.excluded_constraints.items()
+            if values
+        },
+        "asked_attributes": sorted(state.asked_attributes),
+        "no_preference_attributes": sorted(state.no_preference_attributes),
+        "recent_conversation": [
+            {
+                "role": item.get("role"),
+                "message": item.get("message"),
+                "ask_attribute": item.get("ask_attribute"),
+            }
+            for item in state.history[-6:]
+        ],
+    }
+
+
+def _validated_llm_delta(payload: object) -> dict | None:
+    if not isinstance(payload, dict):
+        return None
+    expected_keys = {
+        "set",
+        "clear",
+        "exclude",
+        "no_preference",
+        "intent_changed",
+        "ambiguities",
+        "confidence",
+    }
+    if set(payload) != expected_keys:
+        return None
+
+    confidence = payload["confidence"]
+    if (
+        isinstance(confidence, bool)
+        or not isinstance(confidence, (int, float))
+        or not 0 <= float(confidence) <= 1
+        or float(confidence) < 0.75
+    ):
+        return None
+
+    clear = payload["clear"]
+    no_preference = payload["no_preference"]
+    ambiguities = payload["ambiguities"]
+    if not all(isinstance(value, list) for value in (clear, no_preference, ambiguities)):
+        return None
+    if any(attribute not in CONSTRAINT_KEYS for attribute in clear):
+        return None
+    if any(attribute not in ALLOWED_ATTRIBUTES for attribute in no_preference):
+        return None
+    if any(not isinstance(item, str) or len(item) > 200 for item in ambiguities):
+        return None
+
+    set_values = payload["set"]
+    if not isinstance(set_values, dict):
+        return None
+    validated_set: dict[str, dict[str, object]] = {}
+    for attribute, entry in set_values.items():
+        if attribute not in CONSTRAINT_KEYS or not isinstance(entry, dict):
+            return None
+        if set(entry) != {"value", "priority", "evidence"}:
+            return None
+        value = entry["value"]
+        if attribute == "budget":
+            if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+                return None
+        elif not isinstance(value, str):
+            return None
+        if not str(value).strip() or len(str(value)) > 240:
+            return None
+        if entry["priority"] not in {"required", "preferred"}:
+            return None
+        evidence = entry["evidence"]
+        if not isinstance(evidence, str) or len(evidence) > 300:
+            return None
+        validated_set[attribute] = {
+            "value": value,
+            "priority": entry["priority"],
+            "evidence": evidence,
+        }
+
+    exclusions = payload["exclude"]
+    if not isinstance(exclusions, dict):
+        return None
+    validated_exclusions: dict[str, list[str]] = {}
+    for attribute, values in exclusions.items():
+        if attribute not in CONSTRAINT_KEYS or not isinstance(values, list):
+            return None
+        if any(
+            not isinstance(value, str)
+            or not value.strip()
+            or len(value) > 120
+            for value in values
+        ):
+            return None
+        validated_exclusions[attribute] = values
+
+    if not isinstance(payload["intent_changed"], bool):
+        return None
+    if payload["intent_changed"] and "category" not in validated_set:
+        return None
+    if set(validated_set).intersection(no_preference):
+        return None
+    for attribute, entry in validated_set.items():
+        normalized_value = str(entry["value"]).strip().casefold()
+        if any(
+            normalized_value == excluded.strip().casefold()
+            for excluded in validated_exclusions.get(attribute, [])
+        ):
+            return None
+
+    return {
+        "set": validated_set,
+        "clear": set(clear),
+        "exclude": validated_exclusions,
+        "no_preference": set(no_preference),
+        "intent_changed": payload["intent_changed"],
+    }
+
+
+def apply_llm_state_delta(
+    state: SessionState,
+    message: str,
+    payload: object,
+) -> bool:
+    """Validate and apply an LLM proposal on top of deterministic parsing."""
+    delta = _validated_llm_delta(payload)
+    if delta is None:
+        return False
+
+    source_turn = sum(item.get("role") == "user" for item in state.history)
+    cleared_attributes = set(delta["clear"])
+    reopened_attributes = set(cleared_attributes)
+    if delta["intent_changed"]:
+        state.override_seen = True
+        category_change_clears = _clear_for_category_change(state)
+        cleared_attributes.update(category_change_clears)
+        reopened_attributes.update(category_change_clears)
+
+    for attribute in cleared_attributes:
+        _clear_attribute(state, attribute)
+
+    for attribute, values in delta["exclude"].items():
+        for value in values:
+            normalized = _clean_value(value)
+            if not normalized:
+                continue
+            state.excluded_constraints[attribute].add(normalized)
+            _remove_matching_evidence(state, attribute, normalized)
+            cleared_attributes.add(attribute)
+            reopened_attributes.add(attribute)
+
+    newly_marked_no_preference = False
+    for attribute in delta["no_preference"]:
+        newly_marked_no_preference |= attribute not in state.no_preference_attributes
+        state.no_preference_attributes.add(attribute)
+        if attribute in CONSTRAINT_KEYS:
+            _clear_attribute(state, attribute)
+            cleared_attributes.add(attribute)
+
+    for attribute, entry in delta["set"].items():
+        value = entry["value"]
+        if attribute == "budget" and isinstance(value, str):
+            parsed_budget = _budget_from_message(value)
+            if parsed_budget is None:
+                try:
+                    parsed_budget = float(value.replace("$", "").replace(",", "").strip())
+                except ValueError:
+                    continue
+            value = parsed_budget
+        _record_constraint(
+            state=state,
+            attribute=attribute,
+            value=value,
+            source_turn=source_turn,
+            source_message=message,
+            source_kind=f"llm_{entry['priority']}",
+            replace=(
+                attribute in cleared_attributes
+                or attribute not in {"material", "feature", "use_case"}
+            ),
+        )
+
+    if delta["set"]:
+        state.consecutive_no_preference = 0
+    elif newly_marked_no_preference:
+        state.consecutive_no_preference += 1
+    _reopen_cleared_questions(state, reopened_attributes)
+    return True
+
+
+def validated_llm_clarification(
+    state: SessionState,
+    turn: int,
+    fallback_attribute: str | None,
+    payload: object,
+    *,
+    allow_attribute_override: bool = False,
+) -> tuple[str | None, str] | None:
+    """Accept only a useful, contract-safe LLM clarification proposal."""
+    if not isinstance(payload, dict):
+        return None
+    if set(payload) != {"ask_attribute", "response_message", "reason", "confidence"}:
+        return None
+    confidence = payload["confidence"]
+    if (
+        isinstance(confidence, bool)
+        or not isinstance(confidence, (int, float))
+        or not 0 <= float(confidence) <= 1
+        or float(confidence) < 0.65
+    ):
+        return None
+    if not isinstance(payload["reason"], str):
+        return None
+
+    ask_attribute = payload["ask_attribute"]
+    if ask_attribute is not None and ask_attribute not in ALLOWED_ATTRIBUTES:
+        return None
+    if not allow_attribute_override and ask_attribute != fallback_attribute:
+        return None
+    if turn >= 10 and ask_attribute is not None:
+        return None
+    if ask_attribute is None and fallback_attribute is not None:
+        return None
+    if ask_attribute in state.no_preference_attributes:
+        return None
+    if ask_attribute == "other":
+        if state.other_questions_asked >= 2:
+            return None
+    elif ask_attribute is not None:
+        if ask_attribute in state.asked_attributes:
+            return None
+        if state.constraints[ask_attribute] is not None:
+            return None
+
+    message = payload["response_message"]
+    if not isinstance(message, str):
+        return None
+    message = re.sub(r"\s+", " ", message).strip()
+    if ask_attribute is not None and (not message or len(message) > 240):
+        return None
+    if ask_attribute is None:
+        message = message or response_message(None)
+    return ask_attribute, message
+
+
+def update_state(state: SessionState, message: str) -> bool:
+    """Apply deterministic parsing and return True when the message was fully
+    handled (no-preference reply, override, or extracted constraints), so the
+    caller can skip the LLM interpretation pass."""
+    source_turn = 1 + sum(item["role"] == "user" for item in state.history)
+    state.history.append({"role": "user", "message": message})
+    if _mark_no_preference(state, message):
+        return True
+
+    is_override = OVERRIDE_RE.search(message) is not None
+    updates = extract_constraints(state, message)
+    if updates:
+        state.consecutive_no_preference = 0
+    cleared_attributes: set[str] = set()
+    if is_override:
+        state.override_seen = True
+        previous_category = state.constraints["category"]
+        cleared_attributes.update(_clear_overridden_values(state, message))
+        new_category = updates.get("category")
+        if (
+            previous_category is not None
+            and new_category is not None
+            and str(previous_category).casefold() != str(new_category).casefold()
+        ):
+            cleared_attributes.update(_clear_for_category_change(state))
+
+    for key, value in updates.items():
+        if value is None:
+            continue
+        _record_constraint(
+            state=state,
+            attribute=key,
+            value=value,
+            source_turn=source_turn,
+            source_message=message,
+            source_kind=_source_kind(message, key, source_turn, is_override),
+            replace=(
+                key in cleared_attributes
+                or key not in {"material", "feature", "use_case"}
+            ),
+        )
+
+    _reopen_cleared_questions(state, cleared_attributes)
+    return (
+        bool(updates)
+        or is_override
+        or REQUEST_ATTRIBUTE_RE.search(message) is not None
+    )
+
+
+def choose_clarification(state: SessionState, turn: int) -> str | None:
+    if turn >= 10:
+        return None
+
+    other_is_available = "other" not in state.no_preference_attributes
+    no_preference_limit = 1 if state.override_seen else 2
+    if (
+        state.consecutive_no_preference >= no_preference_limit
+        and state.other_questions_asked < 2
+        and other_is_available
+    ):
+        return "other"
+
+    for attribute in QUESTION_ORDER:
+        if attribute == "other":
+            if state.other_questions_asked < 2 and other_is_available:
+                return "other"
+            continue
+        already_resolved = (
+            attribute in state.asked_attributes
+            or attribute in state.no_preference_attributes
+        )
+        if already_resolved:
+            continue
+        if state.constraints[attribute] is None:
+            return attribute
+
+    latest_user_message = next(
+        (
+            str(item.get("message", ""))
+            for item in reversed(state.history)
+            if item.get("role") == "user"
+        ),
+        "",
+    )
+    if REQUEST_ATTRIBUTE_RE.search(latest_user_message):
+        return "other"
+    return None
+
+
+def response_message(ask_attribute: str | None) -> str:
+    if ask_attribute is None:
+        return "Here are the closest matches I found."
+    return QUESTION_MESSAGES[ask_attribute]
+
+
+def record_response(
+    state: SessionState,
+    message: str,
+    ask_attribute: str | None,
+    recommendations: list[dict[str, str]],
+) -> None:
+    state.last_asked_attribute = ask_attribute
+    if ask_attribute is not None:
+        state.asked_attributes.add(ask_attribute)
+    if ask_attribute == "other":
+        state.other_questions_asked += 1
+    state.history.append(
+        {
+            "role": "assistant",
+            "message": message,
+            "ask_attribute": ask_attribute,
+            "recommendations": [item["parent_asin"] for item in recommendations],
+        }
+    )

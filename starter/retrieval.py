@@ -1,53 +1,80 @@
-"""Local, constraint-aware catalog retrieval for the shopping agent.
-
-The evaluator-facing agent owns conversation state.  This module only turns a
-query and already-validated constraints into real catalog IDs and compact
-candidate statistics that a question planner can use.
-"""
-
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import dataclass
 import json
-from pathlib import Path
 import re
 import sqlite3
+from dataclasses import dataclass
+from pathlib import Path
 
 
 TOKEN_RE = re.compile(r"[a-z0-9]+", re.IGNORECASE)
 STOPWORDS = {
-    "a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "from",
-    "i", "in", "is", "it", "me", "my", "of", "on", "or", "please", "some",
-    "that", "the", "this", "to", "want", "with", "would", "you", "looking",
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "but",
+    "by",
+    "for",
+    "from",
+    "i",
+    "in",
+    "is",
+    "it",
+    "me",
+    "my",
+    "of",
+    "on",
+    "or",
+    "please",
+    "some",
+    "that",
+    "the",
+    "this",
+    "to",
+    "want",
+    "with",
+    "would",
+    "you",
+    "looking",
 }
-CONSTRAINT_KEYS = (
-    "category", "material", "color", "size", "style", "brand", "budget",
-    "feature", "use_case",
-)
-MATERIALS = (
-    "leather", "stainless steel", "sterling silver", "silver", "gold", "cotton",
-    "wool", "silk", "denim", "suede", "nylon", "polyester", "rubber", "plastic",
-)
-CATEGORY_TERMS = (
+
+ATTRIBUTE_WEIGHTS = {
+    "category": 6.0,
+    "material": 4.0,
+    "color": 3.0,
+    "size": 2.5,
+    "style": 2.0,
+    "brand": 3.0,
+    "feature": 2.5,
+    "use_case": 2.0,
+}
+STAT_CATEGORY_TERMS = (
     "earrings", "necklaces", "bracelets", "rings", "watches", "shoes", "boots",
     "sandals", "sneakers", "dress", "dresses", "shirt", "shirts", "jacket",
     "jackets", "jeans", "pants", "handbag", "backpack", "belt", "scarf",
 )
-WEIGHTS = {
-    "category": 8.0,
-    "material": 6.0,
-    "brand": 6.0,
-    "color": 3.0,
-    "size": 3.0,
-    "style": 3.0,
-    "feature": 3.0,
-    "use_case": 3.0,
+STAT_MATERIAL_TERMS = (
+    "leather", "stainless steel", "sterling silver", "silver", "gold", "cotton",
+    "wool", "silk", "denim", "suede", "nylon", "polyester", "rubber", "plastic",
+)
+MISSING_ATTRIBUTE_PENALTIES = {
+    "category": 4.0,
+    "material": 1.0,
+    "color": 0.8,
+    "size": 0.5,
+    "style": 0.4,
+    "brand": 1.0,
+    "feature": 0.2,
+    "use_case": 0.3,
 }
 
 
 def _text(value: object) -> str:
-    """Flatten JSON catalog values into searchable, human-readable text."""
     if value is None:
         return ""
     if isinstance(value, dict):
@@ -65,192 +92,247 @@ def _terms(text: str) -> list[str]:
     ]
 
 
-def _constraint_text(constraints: dict[str, object]) -> str:
-    """Use textual constraints to widen BM25 retrieval before reranking."""
-    values = [
-        _text(constraints.get(name))
-        for name in CONSTRAINT_KEYS
-        if name != "budget" and constraints.get(name) not in (None, "")
-    ]
-    return " ".join(values)
+def _token_text(text: str) -> str:
+    return " " + " ".join(_terms(text)) + " "
 
 
-def _contains_phrase(text: str, phrase: str) -> bool:
-    """Match a normalized attribute without treating one word as another's suffix."""
-    return bool(re.search(rf"(?<![a-z0-9]){re.escape(phrase)}(?![a-z0-9])", text))
+def _price(value: object) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        return float(str(value).replace("$", "").replace(",", "").strip())
+    except ValueError:
+        return None
 
 
-def _number(value: object) -> float | None:
-    """Read a catalog price or validated budget without raising on dirty data."""
-    if isinstance(value, (int, float)):
-        return float(value)
-    match = re.search(r"\d+(?:\.\d+)?", _text(value))
-    return float(match.group()) if match else None
+@dataclass(slots=True)
+class ProductDocument:
+    parent_asin: str
+    full_tokens: str
+    category_tokens: str
+    brand_tokens: str
+    price: float | None
 
 
 @dataclass(frozen=True)
 class SearchResult:
-    """Ranked catalog IDs plus aggregate observations about the candidate pool."""
+    """Ranked catalog IDs plus attribute frequencies in the best candidates."""
 
     recommendation_ids: list[str]
     candidate_attribute_stats: dict[str, dict[str, int]]
 
 
-class CatalogRetriever:
-    """In-memory SQLite FTS5 retriever with transparent constraint reranking."""
+class CatalogSearch:
+    """In-memory multi-route BM25 retrieval with transparent constraint reranking."""
 
-    def __init__(self, catalog_path: str | Path = "data/catalog.jsonl") -> None:
+    def __init__(self, catalog_path: str | Path) -> None:
         self.catalog_path = Path(catalog_path)
         self.connection = sqlite3.connect(":memory:")
-        self.connection.row_factory = sqlite3.Row
+        self.products: dict[str, ProductDocument] = {}
         self._build_index()
 
     def _build_index(self) -> None:
         cursor = self.connection.cursor()
         cursor.execute(
             "CREATE VIRTUAL TABLE products USING fts5("
-            "parent_asin UNINDEXED, title, categories, features, details, store, description, price UNINDEXED, "
+            "parent_asin UNINDEXED, title, categories, features, details, store, description, "
             "tokenize='unicode61 remove_diacritics 2')"
         )
-        batch: list[tuple[str, str, str, str, str, str, str, str]] = []
+        batch: list[tuple[str, str, str, str, str, str, str]] = []
         with self.catalog_path.open(encoding="utf-8") as handle:
             for line in handle:
                 product = json.loads(line)
+                parent_asin = str(product["parent_asin"])
+                title = _text(product.get("title"))
+                categories = _text(product.get("categories"))
+                features = _text(product.get("features"))
+                details = _text(product.get("details"))
+                store = _text(product.get("store"))
+                description = _text(product.get("description"))
+                full_text = " ".join(
+                    (title, categories, features, details, store, description)
+                ).strip()
+                self.products[parent_asin] = ProductDocument(
+                    parent_asin=parent_asin,
+                    full_tokens=_token_text(full_text),
+                    category_tokens=_token_text(f"{title} {categories}"),
+                    brand_tokens=_token_text(f"{store} {title}"),
+                    price=_price(product.get("price")),
+                )
                 batch.append(
                     (
-                        str(product["parent_asin"]),
-                        _text(product.get("title")),
-                        _text(product.get("categories")),
-                        _text(product.get("features")),
-                        _text(product.get("details")),
-                        _text(product.get("store")),
-                        _text(product.get("description")),
-                        _text(product.get("price")),
+                        parent_asin,
+                        title,
+                        categories,
+                        features,
+                        details,
+                        store,
+                        description,
                     )
                 )
                 if len(batch) >= 1000:
-                    cursor.executemany("INSERT INTO products VALUES (?, ?, ?, ?, ?, ?, ?, ?)", batch)
+                    cursor.executemany("INSERT INTO products VALUES (?, ?, ?, ?, ?, ?, ?)", batch)
                     batch.clear()
         if batch:
-            cursor.executemany("INSERT INTO products VALUES (?, ?, ?, ?, ?, ?, ?, ?)", batch)
+            cursor.executemany("INSERT INTO products VALUES (?, ?, ?, ?, ?, ?, ?)", batch)
         self.connection.commit()
 
-    def search(
-        self,
-        query: str,
-        constraints: dict[str, object] | None,
-        top_k: int,
-    ) -> SearchResult:
-        """Return the best real IDs for a query and optional validated constraints."""
-        limit = max(0, top_k)
-        if limit == 0:
-            return SearchResult([], {"category": {}, "material": {}})
-
-        normalized_constraints = constraints or {}
-        combined_text = f"{query} {_constraint_text(normalized_constraints)}"
-        unique_terms = list(dict.fromkeys(_terms(combined_text)))[:40]
-        pool_size = max(limit * 10, 50)
-        rows = self._candidate_rows(unique_terms, pool_size)
-        ranked_rows = sorted(
-            rows,
-            key=lambda row: (-self._score(row, normalized_constraints), row["parent_asin"]),
-        )
-
-        recommendation_ids: list[str] = []
-        seen_ids: set[str] = set()
-        for row in ranked_rows:
-            parent_asin = str(row["parent_asin"])
-            if parent_asin not in seen_ids:
-                recommendation_ids.append(parent_asin)
-                seen_ids.add(parent_asin)
-            if len(recommendation_ids) == limit:
-                break
-
-        return SearchResult(
-            recommendation_ids=recommendation_ids,
-            candidate_attribute_stats=self._attribute_stats(ranked_rows[:50]),
-        )
-
-    def _candidate_rows(self, terms: list[str], pool_size: int) -> list[sqlite3.Row]:
-        columns = "parent_asin, title, categories, features, details, store, description, price"
-        if not terms:
-            return self.connection.execute(
-                f"SELECT {columns}, 0.0 AS bm25_rank FROM products LIMIT ?", (pool_size,)
-            ).fetchall()
-
-        expression = " OR ".join(f'"{term}"' for term in terms)
-        return self.connection.execute(
-            f"SELECT {columns}, bm25(products, 0.0, 6.0, 4.0, 2.5, 2.5, 1.5, 1.0) AS bm25_rank "
-            "FROM products WHERE products MATCH ? ORDER BY bm25(products, 0.0, 6.0, 4.0, 2.5, 2.5, 1.5, 1.0) "
-            "LIMIT ?",
-            (expression, pool_size),
+    def _bm25_route(self, query: str, limit: int) -> list[str]:
+        unique_terms = list(dict.fromkeys(_terms(query)))[:40]
+        expression = " OR ".join(f'"{term}"' for term in unique_terms)
+        if not expression:
+            return []
+        rows = self.connection.execute(
+            "SELECT parent_asin FROM products WHERE products MATCH ? "
+            "ORDER BY bm25(products, 0.0, 6.0, 4.0, 2.5, 2.5, 1.5, 1.0) LIMIT ?",
+            (expression, limit),
         ).fetchall()
+        return [str(row[0]) for row in rows]
 
-    def _score(self, row: sqlite3.Row, constraints: dict[str, object]) -> float:
-        """Combine BM25 relevance with transparent boosts and category penalties."""
-        score = -float(row["bm25_rank"])
-        category_text = str(row["categories"]).casefold()
-        corpus = " ".join(str(row[field]) for field in row.keys() if field not in {"parent_asin", "bm25_rank"}).casefold()
+    @staticmethod
+    def _constraint_text(constraints: dict, key: str) -> str:
+        value = constraints.get(key)
+        return "" if value is None else str(value).strip()
 
-        category = _text(constraints.get("category")).casefold().strip()
-        if category:
-            if _contains_phrase(category_text, category):
-                score += WEIGHTS["category"]
-            elif self._has_clear_category_conflict(category, category_text):
-                score -= WEIGHTS["category"] / 2
+    def _candidate_scores(self, query: str, constraints: dict) -> dict[str, float]:
+        constraint_values = [
+            self._constraint_text(constraints, key)
+            for key in ATTRIBUTE_WEIGHTS
+            if self._constraint_text(constraints, key)
+        ]
+        combined_query = " ".join((query, *constraint_values)).strip() or query
+        routes: list[tuple[str, float, int]] = [(combined_query, 2.0, 800)]
+        route_settings = {
+            "category": (3.0, 500),
+            "material": (1.8, 400),
+            "color": (1.4, 300),
+            "size": (1.2, 300),
+            "style": (1.2, 300),
+            "brand": (1.5, 300),
+            "feature": (1.5, 500),
+            "use_case": (1.2, 300),
+        }
+        for key, (weight, limit) in route_settings.items():
+            value = self._constraint_text(constraints, key)
+            if value:
+                routes.append((value, weight, limit))
 
-        for name, weight in WEIGHTS.items():
-            if name == "category":
+        scores: dict[str, float] = {}
+        seen_queries: set[str] = set()
+        for route_query, route_weight, limit in routes:
+            normalized_query = " ".join(dict.fromkeys(_terms(route_query)))
+            if not normalized_query or normalized_query in seen_queries:
                 continue
-            value = _text(constraints.get(name)).casefold().strip()
-            if value and _contains_phrase(corpus, value):
-                score += weight
+            seen_queries.add(normalized_query)
+            for rank, parent_asin in enumerate(
+                self._bm25_route(route_query, limit),
+                start=1,
+            ):
+                scores[parent_asin] = scores.get(parent_asin, 0.0) + (
+                    route_weight / (60.0 + rank)
+                )
+        return scores
 
-        budget = _number(constraints.get("budget"))
-        price = _number(row["price"])
-        if budget is not None and price is not None:
-            score += 3.0 if price <= budget else -3.0
+    @staticmethod
+    def _attribute_haystack(product: ProductDocument, attribute: str) -> str:
+        if attribute == "category":
+            return product.category_tokens
+        if attribute == "brand":
+            return product.brand_tokens
+        return product.full_tokens
+
+    def _attribute_coverage(
+        self,
+        product: ProductDocument,
+        attribute: str,
+        value: object,
+    ) -> float:
+        terms = list(dict.fromkeys(_terms(str(value))))
+        if not terms:
+            return 0.0
+        haystack = self._attribute_haystack(product, attribute)
+        matched = sum(f" {term} " in haystack for term in terms)
+        return matched / len(terms)
+
+    def _rerank_score(
+        self,
+        product: ProductDocument,
+        retrieval_score: float,
+        constraints: dict,
+    ) -> float | None:
+        budget = constraints.get("budget")
+        if isinstance(budget, (int, float)) and product.price is not None:
+            if product.price > float(budget):
+                return None
+            retrieval_score += 0.5
+
+        score = retrieval_score
+        for attribute, weight in ATTRIBUTE_WEIGHTS.items():
+            value = constraints.get(attribute)
+            if value is None:
+                continue
+            coverage = self._attribute_coverage(product, attribute, value)
+            if coverage:
+                score += weight * coverage
+            else:
+                score -= MISSING_ATTRIBUTE_PENALTIES[attribute]
         return score
 
-    @staticmethod
-    def _has_clear_category_conflict(category: str, category_text: str) -> bool:
-        requested_terms = set(_terms(category))
-        observed_terms = {term for term in CATEGORY_TERMS if _contains_phrase(category_text, term)}
-        return bool(observed_terms and not requested_terms.intersection(observed_terms))
-
-    @staticmethod
-    def _attribute_stats(rows: list[sqlite3.Row]) -> dict[str, dict[str, int]]:
+    def _candidate_attribute_stats(
+        self,
+        ranked_ids: list[str],
+    ) -> dict[str, dict[str, int]]:
         categories: Counter[str] = Counter()
         materials: Counter[str] = Counter()
-        for row in rows:
-            category_text = str(row["categories"]).casefold()
-            corpus = " ".join(str(row[field]) for field in row.keys() if field not in {"parent_asin", "bm25_rank"}).casefold()
-            for category in CATEGORY_TERMS:
-                if _contains_phrase(category_text, category):
+        for parent_asin in ranked_ids[:50]:
+            product = self.products[parent_asin]
+            for category in STAT_CATEGORY_TERMS:
+                if f" {category} " in product.category_tokens:
                     categories[category] += 1
-            for material in MATERIALS:
-                if _contains_phrase(corpus, material):
+            for material in STAT_MATERIAL_TERMS:
+                if f" {material} " in product.full_tokens:
                     materials[material] += 1
         return {
             "category": dict(categories.most_common(10)),
             "material": dict(materials.most_common(10)),
         }
 
+    def search(self, query: str, constraints: dict, top_k: int) -> SearchResult:
+        """Return ranked IDs and statistics using current validated constraints."""
+        limit = max(0, top_k)
+        if limit == 0:
+            return SearchResult([], {"category": {}, "material": {}})
 
-def search(query: str, constraints: dict[str, object], top_k: int) -> SearchResult:
-    """Convenience implementation of the agreed three-argument team contract.
+        candidate_scores = self._candidate_scores(query, constraints)
+        candidate_ids = list(candidate_scores) or list(self.products)
+        category = constraints.get("category")
+        if category is not None:
+            category_matches = [
+                parent_asin
+                for parent_asin in candidate_ids
+                if self._attribute_coverage(
+                    self.products[parent_asin],
+                    "category",
+                    category,
+                )
+                >= 0.5
+            ]
+            if len(category_matches) >= limit:
+                candidate_ids = category_matches
 
-    Production callers that need a non-default catalog or index reuse should keep
-    a ``CatalogRetriever`` instance and call its ``search`` method instead.
-    """
-    return _default_retriever().search(query, constraints, top_k)
-
-
-_DEFAULT_RETRIEVER: CatalogRetriever | None = None
-
-
-def _default_retriever() -> CatalogRetriever:
-    global _DEFAULT_RETRIEVER
-    if _DEFAULT_RETRIEVER is None:
-        _DEFAULT_RETRIEVER = CatalogRetriever()
-    return _DEFAULT_RETRIEVER
+        ranked: list[tuple[float, str]] = []
+        for parent_asin in candidate_ids:
+            product = self.products[parent_asin]
+            score = self._rerank_score(
+                product,
+                candidate_scores.get(parent_asin, 0.0),
+                constraints,
+            )
+            if score is not None:
+                ranked.append((score, parent_asin))
+        ranked.sort(key=lambda item: (-item[0], item[1]))
+        ranked_ids = [parent_asin for _, parent_asin in ranked]
+        return SearchResult(
+            recommendation_ids=ranked_ids[:limit],
+            candidate_attribute_stats=self._candidate_attribute_stats(ranked_ids),
+        )
