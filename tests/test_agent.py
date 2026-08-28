@@ -216,6 +216,25 @@ class AgentConversationTest(unittest.TestCase):
         self.assertNotEqual(second_response["ask_attribute"], asked)
         self.assertIn(asked, self.agent.sessions["session"].no_preference_attributes)
 
+    def test_unchanged_request_rotates_previously_shown_recommendations(self) -> None:
+        self.agent.reset("session", {})
+
+        first = self.agent.respond("session", "I want shoes.", 1, 1)
+        second = self.agent.respond("session", "Show me more options.", 2, 1)
+
+        self.assertNotEqual(
+            first["recommendations"][0]["parent_asin"],
+            second["recommendations"][0]["parent_asin"],
+        )
+
+    def test_new_constraint_can_reuse_the_best_ranked_result(self) -> None:
+        self.agent.reset("session", {})
+        self.agent.respond("session", "I want black shoes.", 1, 1)
+
+        response = self.agent.respond("session", "I need blue shoes.", 2, 1)
+
+        self.assertEqual(response["recommendations"][0]["parent_asin"], "SHOE_BLUE")
+
     def test_response_contract_and_zero_model_usage(self) -> None:
         self.agent.reset("session", {})
 

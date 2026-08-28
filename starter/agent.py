@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from pathlib import Path
 
 from starter.conversation_llm import (
@@ -47,6 +48,17 @@ class Agent:
     def reset(self, session_id: str, user_profile: dict) -> None:
         self.sessions[session_id] = SessionState.create(user_profile)
 
+    @staticmethod
+    def _shown_recommendation_ids(state: SessionState) -> set[str]:
+        """Return IDs shown before the current turn for result diversification."""
+        return {
+            parent_asin
+            for item in state.history
+            if item.get("role") == "assistant"
+            for parent_asin in item.get("recommendations", [])
+            if isinstance(parent_asin, str)
+        }
+
     def respond(
         self,
         session_id: str,
@@ -60,6 +72,7 @@ class Agent:
             raise RuntimeError("reset must be called before respond") from error
 
         usage = TokenUsage()
+        constraints_before = copy.deepcopy(state.constraints)
         handled = update_state(state, user_message)
 
         llm_delta: dict | None = None
@@ -76,10 +89,18 @@ class Agent:
         if llm_delta is not None:
             apply_llm_state_delta(state, user_message, llm_delta)
 
+        constraints_changed = constraints_before != state.constraints
+        exclude_ids = (
+            set()
+            if constraints_changed
+            else self._shown_recommendation_ids(state)
+        )
+
         result = self.retrieval.search(
             query=user_message,
             constraints=state.constraints,
             top_k=top_k,
+            exclude_ids=exclude_ids,
         )
         recommendations = [
             {"parent_asin": parent_asin}

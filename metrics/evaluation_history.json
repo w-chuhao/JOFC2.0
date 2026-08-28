@@ -45,6 +45,51 @@
           }
         }
       }
+    },
+    {
+      "test_number": 2,
+      "tested_by": "w-chuhao",
+      "tested_at": "2026-08-28T15:11:56.218797+08:00",
+      "note": "New exclusion rule",
+      "metrics": {
+        "sample_count": 200,
+        "hit_rate_at_10": 0.995,
+        "mrr": 0.600369,
+        "mttc": 3.18,
+        "efficiency": 0.782,
+        "recommended_technical_score": 0.834011,
+        "reported_token_usage": {
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "total_tokens": 0
+        },
+        "scenario_metrics": {
+          "boundary": {
+            "sample_count": 10,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.752778,
+            "mttc": 3.9
+          },
+          "browsing": {
+            "sample_count": 80,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.590179,
+            "mttc": 2.9625
+          },
+          "buying": {
+            "sample_count": 80,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.552951,
+            "mttc": 2.7875
+          },
+          "intent_override": {
+            "sample_count": 30,
+            "hit_rate_at_10": 0.966667,
+            "mrr": 0.703188,
+            "mttc": 4.566667
+          }
+        }
+      }
     }
   ]
 }
