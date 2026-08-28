@@ -297,8 +297,19 @@ class CatalogSearch:
             "material": dict(materials.most_common(10)),
         }
 
-    def search(self, query: str, constraints: dict, top_k: int) -> SearchResult:
-        """Return ranked IDs and statistics using current validated constraints."""
+    def search(
+        self,
+        query: str,
+        constraints: dict,
+        top_k: int,
+        *,
+        exclude_ids: set[str] | None = None,
+    ) -> SearchResult:
+        """Return ranked IDs and statistics using current validated constraints.
+
+        ``exclude_ids`` is used for later conversational turns to expose the
+        next-best catalogue items without changing the ranking itself.
+        """
         limit = max(0, top_k)
         if limit == 0:
             return SearchResult([], {"category": {}, "material": {}})
@@ -332,7 +343,12 @@ class CatalogSearch:
                 ranked.append((score, parent_asin))
         ranked.sort(key=lambda item: (-item[0], item[1]))
         ranked_ids = [parent_asin for _, parent_asin in ranked]
+        excluded = exclude_ids or set()
         return SearchResult(
-            recommendation_ids=ranked_ids[:limit],
+            recommendation_ids=[
+                parent_asin
+                for parent_asin in ranked_ids
+                if parent_asin not in excluded
+            ][:limit],
             candidate_attribute_stats=self._candidate_attribute_stats(ranked_ids),
         )

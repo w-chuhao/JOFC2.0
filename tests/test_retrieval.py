@@ -190,6 +190,22 @@ class CatalogSearchTest(unittest.TestCase):
             )
         )
 
+    def test_excluded_ids_are_skipped_before_selecting_top_k(self) -> None:
+        first = self.search.search(
+            query="black leather shoes",
+            constraints=constraints(category="shoes"),
+            top_k=1,
+        )
+        second = self.search.search(
+            query="black leather shoes",
+            constraints=constraints(category="shoes"),
+            top_k=1,
+            exclude_ids=set(first.recommendation_ids),
+        )
+
+        self.assertEqual(len(second.recommendation_ids), 1)
+        self.assertNotEqual(first.recommendation_ids, second.recommendation_ids)
+
 
 if __name__ == "__main__":
     unittest.main()
