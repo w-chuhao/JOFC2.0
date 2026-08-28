@@ -16,6 +16,7 @@ from starter.state import (
     response_message,
     state_for_llm,
     update_state,
+    validated_llm_clarification,
 )
 
 
@@ -75,17 +76,39 @@ class Agent:
         if llm_delta is not None:
             apply_llm_state_delta(state, user_message, llm_delta)
 
-        parent_asins = self.retrieval.search(
+        result = self.retrieval.search(
             query=user_message,
             constraints=state.constraints,
             top_k=top_k,
         )
         recommendations = [
             {"parent_asin": parent_asin}
-            for parent_asin in parent_asins
+            for parent_asin in result.recommendation_ids
         ]
         ask_attribute = choose_clarification(state, turn)
         message = response_message(ask_attribute)
+
+        if self.conversation_llm is not None:
+            try:
+                clarification, clarification_usage = (
+                    self.conversation_llm.plan_clarification(
+                        current_state=state_for_llm(state),
+                        fallback_attribute=ask_attribute,
+                        candidate_summary=result.candidate_attribute_stats,
+                    )
+                )
+                usage += clarification_usage
+                validated = validated_llm_clarification(
+                    state,
+                    turn,
+                    ask_attribute,
+                    clarification,
+                    allow_attribute_override=True,
+                )
+                if validated is not None:
+                    ask_attribute, message = validated
+            except Exception:
+                pass
 
         record_response(state, message, ask_attribute, recommendations)
 

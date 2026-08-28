@@ -1,0 +1,4 @@
+interface:
+  display_name: "Update Doc"
+  short_description: "Update this repo's docs from current architecture discussion."
+  default_prompt: "Update the repository documentation based on our current chat context and preserve current-vs-future boundaries."

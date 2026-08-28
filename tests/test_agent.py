@@ -282,15 +282,13 @@ class AgentConversationTest(unittest.TestCase):
         self.assertEqual(state.constraints["category"], "shoes")
         self.assertEqual(state.constraints["color"], "black")
         self.assertEqual(response["ask_attribute"], "material")
-        self.assertEqual(
-            response["message"],
-            "Do you have a material preference?",
-        )
+        self.assertEqual(response["message"], "Which material would work best for you?")
         self.assertEqual(
             response["usage"],
-            {"prompt_tokens": 20, "completion_tokens": 5},
+            {"prompt_tokens": 30, "completion_tokens": 8},
         )
-        self.assertEqual(fake_llm.candidate_summaries, [])
+        self.assertEqual(len(fake_llm.candidate_summaries), 1)
+        self.assertIn("category", fake_llm.candidate_summaries[0])
 
     def test_invalid_llm_output_falls_back_without_changing_state(self) -> None:
         fake_llm = FakeConversationLLM(
@@ -333,7 +331,7 @@ class AgentConversationTest(unittest.TestCase):
         self.assertEqual(response["ask_attribute"], "category")
         self.assertEqual(
             response["usage"],
-            {"prompt_tokens": 20, "completion_tokens": 5},
+            {"prompt_tokens": 30, "completion_tokens": 8},
         )
 
 

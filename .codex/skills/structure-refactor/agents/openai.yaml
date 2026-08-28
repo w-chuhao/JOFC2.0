@@ -1,0 +1,4 @@
+interface:
+  display_name: "Structure Refactor"
+  short_description: "Improve the shopping agent's OOP and module boundaries"
+  default_prompt: "Use $structure-refactor to improve separation of concerns in this shopping agent while preserving its evaluator contract and behaviour."

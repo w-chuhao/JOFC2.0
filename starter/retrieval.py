@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 import json
 import re
 import sqlite3
@@ -52,6 +53,15 @@ ATTRIBUTE_WEIGHTS = {
     "feature": 2.5,
     "use_case": 2.0,
 }
+STAT_CATEGORY_TERMS = (
+    "earrings", "necklaces", "bracelets", "rings", "watches", "shoes", "boots",
+    "sandals", "sneakers", "dress", "dresses", "shirt", "shirts", "jacket",
+    "jackets", "jeans", "pants", "handbag", "backpack", "belt", "scarf",
+)
+STAT_MATERIAL_TERMS = (
+    "leather", "stainless steel", "sterling silver", "silver", "gold", "cotton",
+    "wool", "silk", "denim", "suede", "nylon", "polyester", "rubber", "plastic",
+)
 MISSING_ATTRIBUTE_PENALTIES = {
     "category": 4.0,
     "material": 1.0,
@@ -68,9 +78,9 @@ def _text(value: object) -> str:
     if value is None:
         return ""
     if isinstance(value, dict):
-        return " ".join(f"{key} {item}" for key, item in value.items())
+        return " ".join(f"{key} {_text(item)}" for key, item in value.items())
     if isinstance(value, list):
-        return " ".join(str(item) for item in value)
+        return " ".join(_text(item) for item in value)
     return str(value)
 
 
@@ -102,6 +112,14 @@ class ProductDocument:
     category_tokens: str
     brand_tokens: str
     price: float | None
+
+
+@dataclass(frozen=True)
+class SearchResult:
+    """Ranked catalog IDs plus attribute frequencies in the best candidates."""
+
+    recommendation_ids: list[str]
+    candidate_attribute_stats: dict[str, dict[str, int]]
 
 
 class CatalogSearch:
@@ -182,7 +200,7 @@ class CatalogSearch:
             for key in ATTRIBUTE_WEIGHTS
             if self._constraint_text(constraints, key)
         ]
-        combined_query = " ".join(constraint_values) or query
+        combined_query = " ".join((query, *constraint_values)).strip() or query
         routes: list[tuple[str, float, int]] = [(combined_query, 2.0, 800)]
         route_settings = {
             "category": (3.0, 500),
@@ -260,10 +278,33 @@ class CatalogSearch:
                 score -= MISSING_ATTRIBUTE_PENALTIES[attribute]
         return score
 
-    def search(self, query: str, constraints: dict, top_k: int) -> list[str]:
-        """Return ranked catalog IDs using fresh retrieval plus current constraints."""
+    def _candidate_attribute_stats(
+        self,
+        ranked_ids: list[str],
+    ) -> dict[str, dict[str, int]]:
+        categories: Counter[str] = Counter()
+        materials: Counter[str] = Counter()
+        for parent_asin in ranked_ids[:50]:
+            product = self.products[parent_asin]
+            for category in STAT_CATEGORY_TERMS:
+                if f" {category} " in product.category_tokens:
+                    categories[category] += 1
+            for material in STAT_MATERIAL_TERMS:
+                if f" {material} " in product.full_tokens:
+                    materials[material] += 1
+        return {
+            "category": dict(categories.most_common(10)),
+            "material": dict(materials.most_common(10)),
+        }
+
+    def search(self, query: str, constraints: dict, top_k: int) -> SearchResult:
+        """Return ranked IDs and statistics using current validated constraints."""
+        limit = max(0, top_k)
+        if limit == 0:
+            return SearchResult([], {"category": {}, "material": {}})
+
         candidate_scores = self._candidate_scores(query, constraints)
-        candidate_ids = list(candidate_scores)
+        candidate_ids = list(candidate_scores) or list(self.products)
         category = constraints.get("category")
         if category is not None:
             category_matches = [
@@ -276,7 +317,7 @@ class CatalogSearch:
                 )
                 >= 0.5
             ]
-            if len(category_matches) >= top_k:
+            if len(category_matches) >= limit:
                 candidate_ids = category_matches
 
         ranked: list[tuple[float, str]] = []
@@ -284,10 +325,14 @@ class CatalogSearch:
             product = self.products[parent_asin]
             score = self._rerank_score(
                 product,
-                candidate_scores[parent_asin],
+                candidate_scores.get(parent_asin, 0.0),
                 constraints,
             )
             if score is not None:
                 ranked.append((score, parent_asin))
         ranked.sort(key=lambda item: (-item[0], item[1]))
-        return [parent_asin for _, parent_asin in ranked[:top_k]]
+        ranked_ids = [parent_asin for _, parent_asin in ranked]
+        return SearchResult(
+            recommendation_ids=ranked_ids[:limit],
+            candidate_attribute_stats=self._candidate_attribute_stats(ranked_ids),
+        )
