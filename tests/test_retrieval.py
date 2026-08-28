@@ -45,6 +45,33 @@ CATALOG_ROWS = [
         "rating_number": 60,
         "price": 60.0,
     },
+    {
+        "parent_asin": "SHOE_CANVAS",
+        "title": "Black canvas walking shoes",
+        "features": ["comfortable cushioned sole"],
+        "details": {"material": "canvas", "color": "black"},
+        "description": ["Everyday walking footwear"],
+        "categories": ["Clothing", "Shoes"],
+        "store": "Shoe Store",
+        "average_rating": 4.4,
+        "rating_number": 90,
+        "price": 75.0,
+    },
+    *[
+        {
+            "parent_asin": f"STEEL_HOOP_{number:02d}",
+            "title": f"Lightweight stainless steel hoop earrings {number}",
+            "features": ["hypoallergenic hoops"],
+            "details": {"material": "stainless steel", "style": "hoop"},
+            "description": ["Lightweight everyday earrings"],
+            "categories": ["Jewelry", "Earrings"],
+            "store": "Jewelry Store",
+            "average_rating": 4.5,
+            "rating_number": 100,
+            "price": 20.0 + number,
+        }
+        for number in range(1, 11)
+    ],
 ]
 
 
@@ -114,6 +141,33 @@ class CatalogSearchTest(unittest.TestCase):
         self.assertEqual(len(ids), len(set(ids)))
         self.assertTrue(set(ids).issubset({row["parent_asin"] for row in CATALOG_ROWS}))
 
+    def test_specific_earring_query_returns_ten_valid_unique_ids(self) -> None:
+        result = self.search.search(
+            query="lightweight stainless steel hoop earrings",
+            constraints=constraints(),
+            top_k=10,
+        )
+
+        ids = result.recommendation_ids
+        self.assertEqual(len(ids), 10)
+        self.assertEqual(len(ids), len(set(ids)))
+        self.assertTrue(set(ids).issubset({row["parent_asin"] for row in CATALOG_ROWS}))
+        self.assertTrue(all(parent_asin.startswith("STEEL_HOOP_") for parent_asin in ids))
+
+    def test_material_constraint_ranks_leather_above_canvas(self) -> None:
+        result = self.search.search(
+            query="black walking shoes",
+            constraints=constraints(category="shoes", material="leather", color="black"),
+            top_k=10,
+        )
+
+        ids = result.recommendation_ids
+        first_leather_rank = min(
+            ids.index("SHOE_IN_BUDGET"),
+            ids.index("SHOE_OVER_BUDGET"),
+        )
+        self.assertLess(first_leather_rank, ids.index("SHOE_CANVAS"))
+
     def test_search_returns_candidate_attribute_statistics(self) -> None:
         result = self.search.search(
             query="black leather shoes",
@@ -129,7 +183,7 @@ class CatalogSearchTest(unittest.TestCase):
     def test_empty_query_returns_valid_catalog_ids(self) -> None:
         result = self.search.search("", constraints(), 10)
 
-        self.assertEqual(len(result.recommendation_ids), len(CATALOG_ROWS))
+        self.assertEqual(len(result.recommendation_ids), min(10, len(CATALOG_ROWS)))
         self.assertTrue(
             set(result.recommendation_ids).issubset(
                 {row["parent_asin"] for row in CATALOG_ROWS}

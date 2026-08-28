@@ -12,6 +12,38 @@ Build one Python shopping agent that receives an anonymized customer profile and
 
 The evaluator ends a session when its hidden target product appears in the Top 10 or after ten turns. The target is unknown to the agent.
 
+## Latest local evaluation (200 public sessions)
+
+The following result was produced locally with:
+
+```powershell
+python -m evaluator.local_evaluator --output results.json
+```
+
+It evaluates only the 200 released labelled development sessions. The final
+competition evaluation uses separate private sessions, so this is evidence for
+local development rather than a guaranteed final score.
+
+| Metric | Latest result | Ideal score | What it measures |
+|---|---:|---:|---|
+| Sessions | 200 | N/A | Number of labelled public conversations evaluated. |
+| Hit Rate@10 | 0.925 (185/200) | 1.000 (200/200) | Fraction of sessions where the target appears in the Top 10 on at least one turn. |
+| MRR | 0.579095 | 1.000 | Ranking quality: rank 1 contributes 1, rank 2 contributes 0.5, rank 10 contributes 0.1, and a miss contributes 0. |
+| MTTC | 3.670 turns | 1.000 turn | Mean first turn on which the target appears. Lower is better; a miss is assigned turn 11. |
+| Efficiency | 0.733 | 1.000 | Speed score calculated as `clip((11 - MTTC) / 10, 0, 1)`. |
+| Recommended Technical Score | 0.782829 | 1.000 | Weighted overall score: `0.50 * Hit Rate@10 + 0.30 * MRR + 0.20 * Efficiency`. |
+| Reported LLM tokens | 0 prompt / 0 completion | No required perfect value | The run used deterministic retrieval/state fallbacks and made no LLM calls. Token use is reported for feasibility, not included in the Technical Score. |
+
+| Scenario | Sessions | Hit Rate@10 | MRR | MTTC | Reading the result |
+|---|---:|---:|---:|---:|---|
+| Boundary | 10 | 1.000 | 0.831111 | 4.300 | Every target was found; ranking was strong, though some answers arrived later in the dialogue. |
+| Browsing | 80 | 0.950 | 0.587192 | 3.275 | Strongest regular-use coverage: 76 of 80 targets were found. |
+| Buying | 80 | 0.900 | 0.509469 | 3.500 | 72 of 80 targets were found; this is the main ranking-quality opportunity. |
+| Intent Override | 30 | 0.900 | 0.659167 | 4.966667 | 27 of 30 targets were found and ranked well, but preference changes take longer to resolve. |
+
+For all scored metrics, higher is better except MTTC, where the best possible
+value is turn 1. A perfect Technical Score is therefore 1.000.
+
 The required evaluator-facing implementation is:
 
 ```text
@@ -141,13 +173,15 @@ All contributors write tests and participate in daily integration. See `PROJECT_
 1. Pull/read the latest work before editing. Keep changes focused on one responsibility.
 2. Preserve the `Agent.reset()` and `Agent.respond()` contract.
 3. Add or update a test when changing retrieval, state, response formatting, or error handling.
-4. Run the official evaluator from the repository root:
+4. Run the official evaluator from the repository root. To append the result,
+   tester, and timestamp to `metrics/evaluation_history.json`, use the tracker
+   wrapper:
 
    ```powershell
-   python -m evaluator.local_evaluator
+   python scripts/run_evaluation.py --tested-by "Member 1" --note "Describe the change tested"
    ```
 
-5. Inspect `results.json`. Record Hit Rate@10, MRR, MTTC, TechnicalScore, and scenario-specific changes in the team metrics log.
+5. Inspect `results.json` and the newly appended history entry. Record Hit Rate@10, MRR, MTTC, TechnicalScore, and scenario-specific changes in the team metrics log.
 6. Keep a change only if it works reliably and improves the score or fixes a required behaviour. Do not trade away another scenario without explicit team agreement.
 7. Commit small, working changes with a clear message. Integrate daily around 18:00 SGT.
 
