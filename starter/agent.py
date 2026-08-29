@@ -106,9 +106,13 @@ class Agent:
             else "browsing"
         )
 
+        retrieval_constraints = copy.deepcopy(state.constraints)
+        if state.category_context and retrieval_constraints.get("category"):
+            retrieval_constraints["category"] = state.category_context
+
         result = self.retrieval.search(
-            query=user_message,
-            constraints=state.constraints,
+            query=state.retrieval_query_for(user_message),
+            constraints=retrieval_constraints,
             top_k=top_k,
             exclude_ids=exclude_ids,
             constraint_priorities=priorities,
@@ -120,7 +124,11 @@ class Agent:
             {"parent_asin": parent_asin}
             for parent_asin in result.recommendation_ids
         ]
-        ask_attribute = choose_clarification(state, turn)
+        ask_attribute = choose_clarification(
+            state,
+            turn,
+            result.candidate_attribute_stats,
+        )
         message = response_message(ask_attribute)
 
         if self.conversation_llm is not None:

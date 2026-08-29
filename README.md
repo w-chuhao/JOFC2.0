@@ -111,13 +111,13 @@ Only catalog-derived, distinct `parent_asin` values are returned. Asking a quest
 - **excluded constraints**, such as "not black"; and
 - **no-preference answers**, so the agent does not ask the same unhelpful question again.
 
-Intent-override language replaces stale constraints instead of accumulating contradictions. The deterministic clarification policy follows a fixed safe question order. This avoids candidate-distribution heuristics that increased evaluator turn counts in controlled ablation testing.
+Intent-override language replaces stale constraints instead of accumulating contradictions. The deterministic clarification policy uses candidate distributions when they meaningfully separate unresolved attributes, then falls back to profile hints and a fixed safe question order.
 
 ### Retrieval and ranking
 
 `starter/retrieval.py` builds an in-memory SQLite FTS5 index over title, categories, features, details, store, and description. It combines field-aware BM25 routes, catalog aliases (for example, `handbag`/`purse`), and a constraint-aware reranker.
 
-Required constraints receive full scoring weight and clear excluded matches are removed; preferred constraints receive a smaller bonus. All BM25 candidate routes use inclusive term matching, rather than a strict Buying-only AND route, because the latter reduced the public evaluator's composite score. Broader Browsing requests also avoid repeating products shown earlier in the same session. The retriever returns aggregate category/material/color/style/use-case counts for diagnostics and the optional planner, never as product recommendations.
+Required constraints receive full scoring weight and clear excluded matches are removed; preferred constraints receive a smaller bonus. Exact multi-word feature clues receive a phrase bonus, while a modest rating/popularity tie-break decays during cross-turn exploration. All BM25 candidate routes use inclusive term matching, rather than a strict Buying-only AND route, because the latter reduced the public evaluator's composite score. Broader Browsing requests also avoid repeating products shown earlier in the same session. The retriever returns aggregate category/material/color/style/brand/use-case/feature/size/budget counts for diagnostics and the optional planner, never as product recommendations.
 
 ### Optional DeepSeek planner
 

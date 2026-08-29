@@ -7,7 +7,12 @@ from pathlib import Path
 
 from starter.agent import Agent
 from starter.conversation_llm import TokenUsage
-from starter.state import ALLOWED_ATTRIBUTES, SessionState, choose_clarification
+from starter.state import (
+    ALLOWED_ATTRIBUTES,
+    SessionState,
+    choose_clarification,
+    update_state,
+)
 
 
 CATALOG_ROWS = [
@@ -200,6 +205,64 @@ class AgentConversationTest(unittest.TestCase):
         self.assertEqual(state.constraints["color"], "black")
         self.assertNotIn("red", state.search_text())
         self.assertNotIn("dress", state.search_text())
+
+    def test_blanket_override_clears_initial_preference_evidence(self) -> None:
+        state = SessionState.create({})
+        update_state(state, "I'm looking for shoes. Zipper closure.")
+        state.last_asked_attribute = "feature"
+        update_state(state, "For that, what matters is: Imported; Zipper closure.")
+
+        update_state(
+            state,
+            "Actually, ignore my earlier preference. What I need is: waterproof.",
+        )
+
+        self.assertNotIn("zipper closure", state.search_text())
+        self.assertEqual(state.constraints["feature"], "waterproof")
+
+    def test_negative_preference_is_not_reintroduced_as_positive(self) -> None:
+        state = SessionState.create({})
+
+        update_state(state, "I need black shoes without leather.")
+
+        self.assertIsNone(state.constraints["material"])
+        self.assertIn("leather", state.excluded_constraints["material"])
+
+    def test_retrieval_query_retains_leaf_category_and_strips_dialogue(self) -> None:
+        state = SessionState.create({})
+        update_state(state, "I'm looking for lightweight hiking shoes.")
+
+        query = state.retrieval_query_for("Show me more options.")
+
+        self.assertIn("hiking shoes", query)
+        self.assertNotIn("show me more", query.casefold())
+
+    def test_candidate_statistics_select_discriminating_attribute(self) -> None:
+        state = SessionState.create({})
+        state.constraints["category"] = "shoes"
+
+        attribute = choose_clarification(
+            state,
+            1,
+            {
+                "material": {"leather": 20, "canvas": 15, "nylon": 15},
+                "feature": {"comfortable": 50},
+            },
+        )
+
+        self.assertEqual(attribute, "material")
+
+    def test_user_profile_prioritizes_relevant_question_when_stats_are_weak(self) -> None:
+        state = SessionState.create({"preference_tags": ["style"]})
+        state.constraints["category"] = "shoes"
+
+        attribute = choose_clarification(
+            state,
+            1,
+            {"material": {"leather": 50}, "style": {"casual": 50}},
+        )
+
+        self.assertEqual(attribute, "style")
 
     def test_broad_request_asks_one_allowed_attribute(self) -> None:
         self.agent.reset("session", {})

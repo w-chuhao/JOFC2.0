@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import math
 import re
 from dataclasses import dataclass, field
 
@@ -42,6 +43,29 @@ QUESTION_MESSAGES = {
     "feature": "Which product feature matters most to you?",
     "use_case": "What will you mainly use the product for?",
     "other": "Is there another requirement that matters to you?",
+}
+
+PROFILE_QUESTION_PREFERENCES = {
+    "material": "material",
+    "fit": "size",
+    "comfort": "feature",
+    "durability": "feature",
+    "performance": "feature",
+    "weather": "use_case",
+    "warmth": "use_case",
+    "style": "style",
+}
+
+INFORMATION_VALUE_WEIGHTS = {
+    "category": 4.0,
+    "material": 4.0,
+    "feature": 2.5,
+    "color": 2.0,
+    "style": 1.2,
+    "size": 1.0,
+    "use_case": 1.0,
+    "brand": 0.6,
+    "budget": 0.4,
 }
 
 MATERIALS = (
@@ -249,6 +273,12 @@ REQUEST_ATTRIBUTE_RE = re.compile(
     re.IGNORECASE,
 )
 REQUIRED_INTENT_RE = re.compile(r"\b(?:need|must|require)\b", re.IGNORECASE)
+DIALOGUE_ONLY_RE = re.compile(
+    r"\b(?:show me more options|those options are not quite right yet|"
+    r"ask me about one specific attribute|please use your judgment|"
+    r"i don't have (?:an additional |a )?preference for [a-z_]+)\b",
+    re.IGNORECASE,
+)
 
 
 ConstraintValue = str | float | None
@@ -290,6 +320,8 @@ class SessionState:
     other_questions_asked: int = 0
     override_seen: bool = False
     last_search_diagnostics: dict[str, object] = field(default_factory=dict)
+    category_context: str | None = None
+    initial_preference_clues: set[str] = field(default_factory=set)
 
     @classmethod
     def create(cls, user_profile: dict) -> SessionState:
@@ -328,6 +360,19 @@ class SessionState:
                 priorities[attribute] = "preferred"
         return priorities
 
+    def retrieval_query(self) -> str:
+        parts = [self.category_context or "", self.search_text()]
+        return " ".join(dict.fromkeys(part.strip() for part in parts if part.strip()))
+
+    def retrieval_query_for(self, message: str) -> str:
+        stable = self.retrieval_query()
+        useful_message = DIALOGUE_ONLY_RE.sub(" ", message)
+        useful_message = re.sub(r"\s+", " ", useful_message).strip(" .,;:")
+        if not useful_message:
+            return stable
+        parts = [self.category_context or "", useful_message, self.search_text()]
+        return " ".join(dict.fromkeys(part.strip() for part in parts if part.strip()))
+
 
 def _clean_value(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip(" \t\r\n.,;:-").lower()
@@ -354,6 +399,32 @@ def _category_from_message(message: str) -> str | None:
         return None
     words = candidate.split()
     return candidate if 0 < len(words) <= 12 else None
+
+
+def _category_context_from_message(message: str) -> str | None:
+    matches = [*LOOKING_FOR_RE.finditer(message), *DIRECT_REQUEST_RE.finditer(message)]
+    if not matches:
+        return None
+    candidate = _clean_value(matches[-1].group(1))
+    if candidate in {"something", "something to wear", "anything", "clothing item"}:
+        return None
+    if _last_match(CATEGORY_RE, candidate) is None:
+        return None
+    return candidate if 0 < len(candidate.split()) <= 18 else None
+
+
+def _initial_preference_clues(message: str) -> set[str]:
+    matches = [*LOOKING_FOR_RE.finditer(message), *DIRECT_REQUEST_RE.finditer(message)]
+    if not matches:
+        return set()
+    remainder = message[matches[-1].end() :].strip(" .,;:")
+    if not remainder:
+        return set()
+    return {
+        _clean_value(clause)
+        for clause in re.split(r"[.;]", remainder)
+        if _clean_value(clause)
+    }
 
 
 def _budget_from_message(message: str) -> float | None:
@@ -573,6 +644,20 @@ def _source_kind(
     return "direct"
 
 
+def _is_initial_preference(
+    state: SessionState,
+    value: str | float,
+    source_turn: int,
+) -> bool:
+    if source_turn != 1:
+        return False
+    normalized = str(value).strip().casefold()
+    return any(
+        normalized in clue or clue in normalized
+        for clue in state.initial_preference_clues
+    )
+
+
 def _mark_no_preference(state: SessionState, message: str) -> bool:
     match = NO_PREFERENCE_RE.search(message)
     if not match:
@@ -597,6 +682,11 @@ def _clear_overridden_values(state: SessionState, message: str) -> set[str]:
                 item
                 for item in state.constraint_evidence[key]
                 if item.source_kind != "initial_preference"
+                and not any(
+                    clue in str(item.value).casefold()
+                    or str(item.value).casefold() in clue
+                    for clue in state.initial_preference_clues
+                )
             ]
             if len(retained) != len(state.constraint_evidence[key]):
                 state.constraint_evidence[key] = retained
@@ -658,6 +748,7 @@ def state_for_llm(state: SessionState) -> dict[str, object]:
         },
         "asked_attributes": sorted(state.asked_attributes),
         "no_preference_attributes": sorted(state.no_preference_attributes),
+        "preference_tags": list(state.user_profile.get("preference_tags", [])),
         "recent_conversation": [
             {
                 "role": item.get("role"),
@@ -904,6 +995,11 @@ def update_state(state: SessionState, message: str) -> bool:
     caller can skip the LLM interpretation pass."""
     source_turn = 1 + sum(item["role"] == "user" for item in state.history)
     state.history.append({"role": "user", "message": message})
+    category_context = _category_context_from_message(message)
+    if category_context:
+        state.category_context = category_context
+    if source_turn == 1:
+        state.initial_preference_clues = _initial_preference_clues(message)
     if _mark_no_preference(state, message):
         return True
 
@@ -912,13 +1008,15 @@ def update_state(state: SessionState, message: str) -> bool:
     if updates:
         state.consecutive_no_preference = 0
     cleared_attributes: set[str] = set()
-    if is_override:
-        state.override_seen = True
+    if is_override or NEGATED_VALUE_RE.search(message):
+        if is_override:
+            state.override_seen = True
         previous_category = state.constraints["category"]
         cleared_attributes.update(_clear_overridden_values(state, message))
         new_category = updates.get("category")
         if (
-            previous_category is not None
+            is_override
+            and previous_category is not None
             and new_category is not None
             and str(previous_category).casefold() != str(new_category).casefold()
         ):
@@ -927,13 +1025,21 @@ def update_state(state: SessionState, message: str) -> bool:
     for key, value in updates.items():
         if value is None:
             continue
+        if any(
+            excluded_value in str(value).casefold()
+            for excluded_value in state.excluded_constraints[key]
+        ):
+            continue
+        source_kind = _source_kind(message, key, source_turn, is_override)
+        if _is_initial_preference(state, value, source_turn):
+            source_kind = "initial_preference"
         _record_constraint(
             state=state,
             attribute=key,
             value=value,
             source_turn=source_turn,
             source_message=message,
-            source_kind=_source_kind(message, key, source_turn, is_override),
+            source_kind=source_kind,
             replace=(
                 key in cleared_attributes
                 or key not in {"material", "feature", "use_case"}
@@ -948,9 +1054,32 @@ def update_state(state: SessionState, message: str) -> bool:
     )
 
 
-def choose_clarification(state: SessionState, turn: int) -> str | None:
+def _candidate_information_value(stats: dict[str, int]) -> float:
+    total = sum(stats.values())
+    if total <= 1 or len(stats) <= 1:
+        return 0.0
+    entropy = -sum(
+        (count / total) * math.log2(count / total)
+        for count in stats.values()
+        if count > 0
+    )
+    return entropy / math.log2(len(stats))
+
+
+def choose_clarification(
+    state: SessionState,
+    turn: int,
+    candidate_statistics: dict[str, dict[str, int]] | None = None,
+) -> str | None:
     if turn >= 10:
         return None
+
+    if (
+        state.constraints["category"] is None
+        and "category" not in state.asked_attributes
+        and "category" not in state.no_preference_attributes
+    ):
+        return "category"
 
     other_is_available = "other" not in state.no_preference_attributes
     no_preference_limit = 1 if state.override_seen else 2
@@ -960,6 +1089,36 @@ def choose_clarification(state: SessionState, turn: int) -> str | None:
         and other_is_available
     ):
         return "other"
+
+    unresolved = [
+        attribute
+        for attribute in QUESTION_ORDER
+        if attribute != "other"
+        and attribute not in state.asked_attributes
+        and attribute not in state.no_preference_attributes
+        and state.constraints[attribute] is None
+    ]
+    if candidate_statistics:
+        scored = [
+            (
+                _candidate_information_value(candidate_statistics.get(attribute, {}))
+                * INFORMATION_VALUE_WEIGHTS.get(attribute, 1.0),
+                -QUESTION_ORDER.index(attribute),
+                attribute,
+            )
+            for attribute in unresolved
+        ]
+        best_score, _, best_attribute = max(scored, default=(0.0, 0, ""))
+        if best_score >= 0.35:
+            return best_attribute
+
+    profile_attributes = [
+        PROFILE_QUESTION_PREFERENCES.get(str(tag).casefold())
+        for tag in state.user_profile.get("preference_tags", [])
+    ]
+    for attribute in profile_attributes:
+        if attribute in unresolved:
+            return attribute
 
     for attribute in QUESTION_ORDER:
         if attribute == "other":
