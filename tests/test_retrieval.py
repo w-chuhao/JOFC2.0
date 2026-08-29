@@ -81,6 +81,30 @@ CATALOG_ROWS = [
         "rating_number": 100,
         "price": 80.0,
     },
+    {
+        "parent_asin": "AAA_TIE_LOW",
+        "title": "Green cotton casual shirt",
+        "features": ["soft"],
+        "details": {"material": "cotton", "color": "green"},
+        "description": ["Everyday shirt"],
+        "categories": ["Clothing", "Shirts"],
+        "store": "Tie Brand",
+        "average_rating": 3.0,
+        "rating_number": 2,
+        "price": 30.0,
+    },
+    {
+        "parent_asin": "ZZZ_TIE_POPULAR",
+        "title": "Green cotton casual shirt",
+        "features": ["soft"],
+        "details": {"material": "cotton", "color": "green"},
+        "description": ["Everyday shirt"],
+        "categories": ["Clothing", "Shirts"],
+        "store": "Tie Brand",
+        "average_rating": 4.9,
+        "rating_number": 5000,
+        "price": 30.0,
+    },
     *[
         {
             "parent_asin": f"STEEL_HOOP_{number:02d}",
@@ -203,6 +227,33 @@ class CatalogSearchTest(unittest.TestCase):
         self.assertIn("material", result.candidate_attribute_stats)
         self.assertGreater(result.candidate_attribute_stats["category"].get("shoes", 0), 0)
         self.assertGreater(result.candidate_attribute_stats["material"].get("leather", 0), 0)
+
+    def test_candidate_statistics_include_color_and_brand(self) -> None:
+        result = self.search.search(
+            query="green cotton shirt",
+            constraints=constraints(category="shirts"),
+            top_k=10,
+        )
+
+        self.assertGreater(result.candidate_attribute_stats["color"].get("green", 0), 0)
+        self.assertGreater(result.candidate_attribute_stats["brand"].get("tie brand", 0), 0)
+
+    def test_popularity_breaks_an_identical_text_tie(self) -> None:
+        result = self.search.search(
+            query="green cotton casual shirt",
+            constraints=constraints(category="shirts"),
+            top_k=10,
+        )
+
+        ids = result.recommendation_ids
+        self.assertLess(ids.index("ZZZ_TIE_POPULAR"), ids.index("AAA_TIE_LOW"))
+
+    def test_popularity_prior_decays_with_cross_turn_exploration(self) -> None:
+        self.assertGreater(
+            self.search._popularity_weight(0),
+            self.search._popularity_weight(40),
+        )
+        self.assertEqual(self.search._popularity_weight(80), 0.0)
 
     def test_empty_query_returns_valid_catalog_ids(self) -> None:
         result = self.search.search("", constraints(), 10)

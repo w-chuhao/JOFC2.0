@@ -84,6 +84,7 @@ class TracePublicSessionsTest(unittest.TestCase):
         override_sample["behavior"] = {
             "override": {
                 "turn": 3,
+                "old_value": "original requirement",
                 "new_value": "replacement requirement",
                 "message": "Actually, use the replacement requirement.",
             }

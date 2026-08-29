@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 import json
+import math
 import re
 import sqlite3
 from dataclasses import dataclass
@@ -83,6 +84,15 @@ STAT_MATERIAL_TERMS = (
     "leather", "stainless steel", "sterling silver", "silver", "gold", "cotton",
     "wool", "silk", "denim", "suede", "nylon", "polyester", "rubber", "plastic",
 )
+STAT_FEATURE_TERMS = (
+    "comfortable", "lightweight", "waterproof", "durable", "stretch", "soft",
+    "breathable", "cushioned", "warm", "hypoallergenic", "adjustable",
+)
+STAT_SIZE_TERMS = (
+    "small", "medium", "large", "wide", "narrow", "slim", "plus size",
+)
+POPULARITY_WEIGHT = 0.02
+RATING_WEIGHT = 0.002
 MISSING_ATTRIBUTE_PENALTIES = {
     "category": 4.0,
     "material": 1.0,
@@ -156,6 +166,9 @@ class ProductDocument:
     category_tokens: str
     brand_tokens: str
     price: float | None
+    brand: str
+    average_rating: float
+    rating_number: int
 
 
 @dataclass(frozen=True)
@@ -203,6 +216,9 @@ class CatalogSearch:
                     category_tokens=_token_text(f"{title} {categories}"),
                     brand_tokens=_token_text(f"{store} {title}"),
                     price=_price(product.get("price")),
+                    brand=store.strip(),
+                    average_rating=_price(product.get("average_rating")) or 0.0,
+                    rating_number=int(_price(product.get("rating_number")) or 0),
                 )
                 batch.append(
                     (
@@ -351,6 +367,7 @@ class CatalogSearch:
         constraints: dict,
         priorities: dict[str, str],
         exclusions: dict[str, set[str]],
+        popularity_weight: float = 0.0,
     ) -> float | None:
         budget = constraints.get("budget")
         if isinstance(budget, (int, float)) and product.price is not None:
@@ -376,18 +393,28 @@ class CatalogSearch:
             ):
                 return None
         score += self._exact_feature_phrase_bonus(product, constraints)
+        score += popularity_weight * math.log1p(max(0, product.rating_number))
+        score += RATING_WEIGHT * max(0.0, product.average_rating)
         return score
+
+    @staticmethod
+    def _popularity_weight(previously_shown: int) -> float:
+        return POPULARITY_WEIGHT * max(0.0, 1.0 - min(previously_shown, 80) / 80.0)
 
     def _candidate_attribute_stats(
         self,
         ranked_ids: list[str],
     ) -> dict[str, dict[str, int]]:
-        counters = {
+        counters: dict[str, Counter[str]] = {
             "category": Counter[str](),
             "material": Counter[str](),
             "color": Counter[str](),
             "style": Counter[str](),
+            "brand": Counter[str](),
             "use_case": Counter[str](),
+            "feature": Counter[str](),
+            "size": Counter[str](),
+            "budget": Counter[str](),
         }
         terms_by_attribute = {
             "category": STAT_CATEGORY_TERMS,
@@ -395,6 +422,8 @@ class CatalogSearch:
             "color": STAT_COLOR_TERMS,
             "style": STAT_STYLE_TERMS,
             "use_case": STAT_USE_CASE_TERMS,
+            "feature": STAT_FEATURE_TERMS,
+            "size": STAT_SIZE_TERMS,
         }
         for parent_asin in ranked_ids[:50]:
             product = self.products[parent_asin]
@@ -403,6 +432,11 @@ class CatalogSearch:
                 for term in terms:
                     if f" {term} " in haystack:
                         counters[attribute][term] += 1
+            if product.brand:
+                counters["brand"][product.brand.casefold()] += 1
+            if product.price is not None:
+                bucket = f"under_{int(math.ceil(product.price / 25.0) * 25)}"
+                counters["budget"][bucket] += 1
         return {attribute: dict(counter.most_common(10)) for attribute, counter in counters.items()}
 
     def search(
@@ -427,6 +461,8 @@ class CatalogSearch:
 
         priorities = constraint_priorities or {}
         exclusions = excluded_constraints or {}
+        excluded = exclude_ids or set()
+        popularity_weight = self._popularity_weight(len(excluded))
         candidate_scores = self._candidate_scores(query, constraints, priorities)
         candidate_ids = list(candidate_scores) or list(self.products)
         category = constraints.get("category")
@@ -453,12 +489,12 @@ class CatalogSearch:
                 constraints,
                 priorities,
                 exclusions,
+                popularity_weight,
             )
             if score is not None:
                 ranked.append((score, parent_asin))
         ranked.sort(key=lambda item: (-item[0], item[1]))
         ranked_ids = [parent_asin for _, parent_asin in ranked]
-        excluded = exclude_ids or set()
         return SearchResult(
             recommendation_ids=[
                 parent_asin

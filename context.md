@@ -14,10 +14,13 @@ The evaluator ends a session when its hidden target product appears in the Top 1
 
 ## Latest local evaluation (200 public sessions)
 
-The following result was produced locally with:
+The following result was produced on `feature/retrieval-integration-v2` with:
 
-```powershell
-python -m evaluator.local_evaluator --output results.json
+```bash
+DEEPSEEK_ENABLED=0 python3 -m evaluator.local_evaluator \
+  --catalog ../catalog.jsonl \
+  --dataset data/public_set.jsonl \
+  --output /private/tmp/jofc-retrieval-integration-v2.json
 ```
 
 It evaluates only the 200 released labelled development sessions. The final
@@ -27,19 +30,19 @@ local development rather than a guaranteed final score.
 | Metric | Latest result | Ideal score | What it measures |
 |---|---:|---:|---|
 | Sessions | 200 | N/A | Number of labelled public conversations evaluated. |
-| Hit Rate@10 | 0.995 (199/200) | 1.000 (200/200) | Fraction of sessions where the target appears in the Top 10 on at least one turn. |
-| MRR | 0.600369 | 1.000 | Ranking quality: rank 1 contributes 1, rank 2 contributes 0.5, rank 10 contributes 0.1, and a miss contributes 0. |
-| MTTC | 3.180 turns | 1.000 turn | Mean first turn on which the target appears. Lower is better; a miss is assigned turn 11. |
-| Efficiency | 0.782 | 1.000 | Speed score calculated as `clip((11 - MTTC) / 10, 0, 1)`. |
-| Recommended Technical Score | 0.834011 | 1.000 | Weighted overall score: `0.50 * Hit Rate@10 + 0.30 * MRR + 0.20 * Efficiency`. |
+| Hit Rate@10 | 1.000 (200/200) | 1.000 (200/200) | Fraction of sessions where the target appears in the Top 10 on at least one turn. |
+| MRR | 0.623800 | 1.000 | Ranking quality: rank 1 contributes 1, rank 2 contributes 0.5, rank 10 contributes 0.1, and a miss contributes 0. |
+| MTTC | 1.735 turns | 1.000 turn | Mean first turn on which the target appears. Lower is better; a miss is assigned turn 11. |
+| Efficiency | 0.9265 | 1.000 | Speed score calculated as `clip((11 - MTTC) / 10, 0, 1)`. |
+| Recommended Technical Score | 0.872440 | 1.000 | Weighted overall score: `0.50 * Hit Rate@10 + 0.30 * MRR + 0.20 * Efficiency`. This is +0.038429 over the post-PR main result of 0.834011. |
 | Reported LLM tokens | 0 prompt / 0 completion | No required perfect value | The run used deterministic retrieval/state fallbacks and made no LLM calls. Token use is reported for feasibility, not included in the Technical Score. |
 
 | Scenario | Sessions | Hit Rate@10 | MRR | MTTC | Reading the result |
 |---|---:|---:|---:|---:|---|
-| Boundary | 10 | 1.000 | 0.752778 | 3.900 | Every target was found; the remaining opportunity is earlier ranking. |
-| Browsing | 80 | 1.000 | 0.590179 | 2.9625 | Coverage is complete; improve rank quality with better candidate separation. |
-| Buying | 80 | 1.000 | 0.552951 | 2.7875 | Coverage is complete; high-precision hard-constraint ranking is the main opportunity. |
-| Intent Override | 30 | 0.966667 | 0.703188 | 4.566667 | One miss remains; preference changes still take the most turns to resolve. |
+| Boundary | 10 | 1.000 | 0.790000 | 2.300 | All targets were found; boundary replies remain the slowest non-override group. |
+| Browsing | 80 | 1.000 | 0.526627 | 1.3625 | All targets were found quickly; first-rank quality remains the largest opportunity. |
+| Buying | 80 | 1.000 | 0.638080 | 1.325 | All targets were found, usually on the first or second turn. |
+| Intent Override | 30 | 1.000 | 0.789444 | 3.633333 | All targets were found after deterministic preference replacement. |
 
 For all scored metrics, higher is better except MTTC, where the best possible
 value is turn 1. A perfect Technical Score is therefore 1.000.
@@ -108,16 +111,17 @@ The starter's SQLite FTS5/BM25 index is a useful base, not disposable code. Impr
 
 ## Current retrieval implementation and remaining validation
 
-The agent now rotates results across turns, represents required/preferred/excluded constraints explicitly, applies exclusions inside retrieval, uses catalog aliases, and returns candidate statistics for diagnostics. Clarification follows a fixed deterministic question order. Generic clues such as `cotton`, `polyester`, and `Imported` are still weak discriminators, so ranking quality and unseen-session robustness remain the main risks.
+The agent now rotates results across turns, represents required/preferred/excluded constraints explicitly, applies exclusions inside retrieval, preserves stable leaf-category query context, uses catalog aliases, and returns expanded candidate statistics. Clarification uses those statistics when they provide useful separation, then falls back to user-profile hints and the fixed deterministic order. Generic clues such as `cotton`, `polyester`, and `Imported` are still weak discriminators, so ranking quality and unseen-session robustness remain the main risks.
 
 The implemented retrieval paths are:
 
-- **Buying:** precision-oriented scoring with required constraints at full weight, excluded-match rejection, and constraint-aware reranking. Candidate construction must remain inclusive; it does not use a strict all-term (AND) query route.
-- **Browsing:** broader multi-route BM25 candidates, result diversification, and the same fixed clarification order.
+- **Buying:** precision-oriented scoring with required constraints at full weight, excluded-match rejection, exact feature-phrase bonuses, and constraint-aware reranking. Candidate construction remains inclusive; it does not use a strict all-term (AND) query route.
+- **Browsing:** broader multi-route BM25 candidates, result diversification, and the same validated clarification policy.
+- **Both routes:** a modest rating/popularity tie-break decays as more products are shown, while retrieval diagnostics remain available for tracing.
 
 ### Rejected retrieval experiments (29 August 2026)
 
-The public-set ablation retained the existing exclusion and hard/soft constraint logic, while testing two proposed additions: candidate-statistics-driven clarification selection and a strict Buying-only BM25 AND route for two or more required values. Neither is part of the current implementation.
+The earlier public-set ablation tested candidate-statistics-driven clarification selection and a strict Buying-only BM25 AND route for two or more required values. The strict AND route remains rejected. Candidate statistics were later integrated with stable category queries, override-safe state, and the decaying tie-break; the combined configuration improved the measured result to `0.872440`.
 
 | Configuration | Hit Rate@10 | MRR | MTTC | Technical Score |
 |---|---:|---:|---:|---:|
@@ -125,13 +129,13 @@ The public-set ablation retained the existing exclusion and hard/soft constraint
 | Strict Buying AND route disabled only | 0.990 | 0.613825 | 3.990 | 0.819348 |
 | Both additions disabled (chosen) | 0.995 | 0.600369 | 3.180 | 0.834011 |
 
-Do not reintroduce either feature without a new controlled ablation that improves the overall Technical Score without an unacceptable Hit Rate@10 or MTTC regression. The strict AND route modestly improved MRR in isolation but lengthened conversations enough to reduce the composite score.
+Do not reintroduce the strict AND route without a new controlled ablation that improves the overall Technical Score without an unacceptable Hit Rate@10 or MTTC regression. It modestly improved MRR in isolation but lengthened conversations enough to reduce the composite score.
 
 Person 1 should now prioritize evaluation and careful tuning rather than adding unmeasured complexity:
 
 - Measure each route with the public evaluator, scenario metrics, trace output, latency, and cross-turn uniqueness.
 - Report every change's overall and scenario-level evaluation results to the team. Whether to retain or revert a change is a team decision; record the decision and its rationale in the team metrics log.
-- Consider a modest popularity tie-breaker only if trace evidence identifies an ambiguity it resolves; do not add typo correction because evaluator inputs are pre-cleaned.
+- Keep popularity as a modest, decaying tie-breaker; do not let it override validated constraints, and do not add typo correction because evaluator inputs are pre-cleaned.
 
 Evaluate each improvement using HR@10, MRR, MTTC, cross-turn uniqueness, latency, and paraphrased or unseen edge cases to avoid overfitting the 200 public sessions.
 
@@ -144,7 +148,16 @@ An LLM is optional and may only act as a **planner**. It may propose a JSON `Sta
 Use this interface between conversation logic and retrieval logic:
 
 ```python
-search(query: str, constraints: dict, top_k: int) -> SearchResult
+search(
+    query: str,
+    constraints: dict,
+    top_k: int,
+    *,
+    exclude_ids: set[str] | None = None,
+    constraint_priorities: dict[str, str] | None = None,
+    excluded_constraints: dict[str, set[str]] | None = None,
+    route: str = "browsing",
+) -> SearchResult
 ```
 
 `constraints` uses the keys:
@@ -171,7 +184,10 @@ search(query: str, constraints: dict, top_k: int) -> SearchResult
     "candidate_attribute_stats": {
         "category": {"earrings": 32, "necklaces": 11},
         "material": {"stainless steel": 18, "fabric": 9},
+        "brand": {"example brand": 6},
+        "feature": {"lightweight": 12},
     },
+    "diagnostics": {"candidate_count": 800, "route": "browsing"},
 }
 ```
 
