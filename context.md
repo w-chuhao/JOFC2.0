@@ -130,7 +130,7 @@ Do not reintroduce either feature without a new controlled ablation that improve
 Person 1 should now prioritize evaluation and careful tuning rather than adding unmeasured complexity:
 
 - Measure each route with the public evaluator, scenario metrics, trace output, latency, and cross-turn uniqueness.
-- Retain a change only when Hit Rate@10 does not regress and MRR, MTTC, or the composite score improves overall or in its intended weak scenario.
+- Report every change's overall and scenario-level evaluation results to the team. Whether to retain or revert a change is a team decision; record the decision and its rationale in the team metrics log.
 - Consider a modest popularity tie-breaker only if trace evidence identifies an ambiguity it resolves; do not add typo correction because evaluator inputs are pre-cleaned.
 
 Evaluate each improvement using HR@10, MRR, MTTC, cross-turn uniqueness, latency, and paraphrased or unseen edge cases to avoid overfitting the 200 public sessions.
@@ -199,7 +199,7 @@ All contributors write tests and participate in daily integration. See `PROJECT_
    ```
 
 5. Inspect `results.json` and the newly appended history entry. Record Hit Rate@10, MRR, MTTC, TechnicalScore, and scenario-specific changes in the team metrics log.
-6. Keep a change only if it works reliably and improves the score or fixes a required behaviour. Do not trade away another scenario without explicit team agreement.
+6. Report whether the change works reliably, including its overall and scenario-level metric impact. The team decides whether to retain or revert it and records the rationale in the team metrics log. Do not trade away another scenario without explicit team agreement.
 7. Commit small, working changes with a clear message. Integrate daily around 18:00 SGT.
 
 ## Evaluation facts

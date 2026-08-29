@@ -57,6 +57,30 @@ CATALOG_ROWS = [
         "rating_number": 90,
         "price": 75.0,
     },
+    {
+        "parent_asin": "FEATURE_PHRASE_EXACT",
+        "title": "Everyday walking shoes",
+        "features": ["All Motion Comfort technology", "Machine Wash"],
+        "details": {},
+        "description": [],
+        "categories": ["Clothing", "Shoes"],
+        "store": "Comfort Store",
+        "average_rating": 4.5,
+        "rating_number": 100,
+        "price": 80.0,
+    },
+    {
+        "parent_asin": "FEATURE_TOKEN_OVERLAP",
+        "title": "Everyday walking shoes",
+        "features": ["Comfort lining with motion support all day"],
+        "details": {},
+        "description": [],
+        "categories": ["Clothing", "Shoes"],
+        "store": "Comfort Store",
+        "average_rating": 4.5,
+        "rating_number": 100,
+        "price": 80.0,
+    },
     *[
         {
             "parent_asin": f"STEEL_HOOP_{number:02d}",
@@ -251,6 +275,38 @@ class CatalogSearchTest(unittest.TestCase):
         )
         self.assertLessEqual(
             required.diagnostics["candidate_count"], preferred.diagnostics["candidate_count"]
+        )
+
+    def test_exact_feature_phrase_bonus_beats_non_contiguous_token_overlap(self) -> None:
+        required_constraints = constraints(feature="All Motion Comfort")
+        exact_score = self.search._rerank_score(
+            self.search.products["FEATURE_PHRASE_EXACT"],
+            1.0,
+            required_constraints,
+            {"feature": "required"},
+            {},
+        )
+        overlap_score = self.search._rerank_score(
+            self.search.products["FEATURE_TOKEN_OVERLAP"],
+            1.0,
+            required_constraints,
+            {"feature": "required"},
+            {},
+        )
+
+        self.assertIsNotNone(exact_score)
+        self.assertIsNotNone(overlap_score)
+        self.assertGreater(exact_score, overlap_score)
+
+    def test_generic_feature_phrase_does_not_receive_a_bonus(self) -> None:
+        product = self.search.products["FEATURE_PHRASE_EXACT"]
+
+        self.assertEqual(
+            self.search._exact_feature_phrase_bonus(
+                product,
+                constraints(feature="Machine Wash"),
+            ),
+            0.0,
         )
 
 if __name__ == "__main__":

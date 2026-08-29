@@ -1,0 +1,140 @@
+{
+  "schema_version": 1,
+  "runs": [
+    {
+      "test_number": 1,
+      "tested_by": "w-chuhao",
+      "tested_at": "2026-08-29T14:49:27.642497+08:00",
+      "note": "Ablation: fixed clarification order",
+      "metrics": {
+        "sample_count": 200,
+        "hit_rate_at_10": 0.985,
+        "mrr": 0.589452,
+        "mttc": 3.24,
+        "efficiency": 0.776,
+        "recommended_technical_score": 0.824536,
+        "reported_token_usage": {
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "total_tokens": 0
+        },
+        "scenario_metrics": {
+          "boundary": {
+            "sample_count": 10,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.841667,
+            "mttc": 4.2
+          },
+          "browsing": {
+            "sample_count": 80,
+            "hit_rate_at_10": 0.9875,
+            "mrr": 0.572197,
+            "mttc": 2.95
+          },
+          "buying": {
+            "sample_count": 80,
+            "hit_rate_at_10": 0.9875,
+            "mrr": 0.538294,
+            "mttc": 2.9125
+          },
+          "intent_override": {
+            "sample_count": 30,
+            "hit_rate_at_10": 0.966667,
+            "mrr": 0.687817,
+            "mttc": 4.566667
+          }
+        }
+      }
+    },
+    {
+      "test_number": 2,
+      "tested_by": "w-chuhao",
+      "tested_at": "2026-08-29T14:55:18.439817+08:00",
+      "note": "Ablation: disable Buying AND route",
+      "metrics": {
+        "sample_count": 200,
+        "hit_rate_at_10": 0.99,
+        "mrr": 0.613825,
+        "mttc": 3.99,
+        "efficiency": 0.701,
+        "recommended_technical_score": 0.819348,
+        "reported_token_usage": {
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "total_tokens": 0
+        },
+        "scenario_metrics": {
+          "boundary": {
+            "sample_count": 10,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.767619,
+            "mttc": 5.1
+          },
+          "browsing": {
+            "sample_count": 80,
+            "hit_rate_at_10": 0.9875,
+            "mrr": 0.607192,
+            "mttc": 4.075
+          },
+          "buying": {
+            "sample_count": 80,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.564717,
+            "mttc": 3.3875
+          },
+          "intent_override": {
+            "sample_count": 30,
+            "hit_rate_at_10": 0.966667,
+            "mrr": 0.711204,
+            "mttc": 5.0
+          }
+        }
+      }
+    },
+    {
+      "test_number": 3,
+      "tested_by": "w-chuhao",
+      "tested_at": "2026-08-29T15:00:42.061816+08:00",
+      "note": "Ablation: fixed questions and no Buying AND route",
+      "metrics": {
+        "sample_count": 200,
+        "hit_rate_at_10": 0.995,
+        "mrr": 0.600369,
+        "mttc": 3.18,
+        "efficiency": 0.782,
+        "recommended_technical_score": 0.834011,
+        "reported_token_usage": {
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "total_tokens": 0
+        },
+        "scenario_metrics": {
+          "boundary": {
+            "sample_count": 10,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.752778,
+            "mttc": 3.9
+          },
+          "browsing": {
+            "sample_count": 80,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.590179,
+            "mttc": 2.9625
+          },
+          "buying": {
+            "sample_count": 80,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.552951,
+            "mttc": 2.7875
+          },
+          "intent_override": {
+            "sample_count": 30,
+            "hit_rate_at_10": 0.966667,
+            "mrr": 0.703188,
+            "mttc": 4.566667
+          }
+        }
+      }
+    }
+  ]
+}

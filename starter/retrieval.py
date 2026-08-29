@@ -93,6 +93,29 @@ MISSING_ATTRIBUTE_PENALTIES = {
     "feature": 0.2,
     "use_case": 0.3,
 }
+EXACT_FEATURE_PHRASE_BONUS = 0.75
+GENERIC_FEATURE_PHRASE_TERMS = frozenset(
+    {
+        "all",
+        "and",
+        "cotton",
+        "color",
+        "colors",
+        "fabric",
+        "hand",
+        "imported",
+        "leather",
+        "machine",
+        "made",
+        "nylon",
+        "polyester",
+        "rayon",
+        "solid",
+        "spandex",
+        "usa",
+        "wash",
+    }
+)
 
 
 def _text(value: object) -> str:
@@ -290,6 +313,37 @@ class CatalogSearch:
         matched = sum(f" {term} " in haystack for term in terms)
         return matched / len(terms)
 
+    @staticmethod
+    def _feature_phrases(value: object) -> set[str]:
+        """Return distinctive two-to-five-token phrases from a feature clue."""
+        phrases: set[str] = set()
+        for clause in str(value).split(";"):
+            terms = _terms(clause)
+            for length in range(2, min(5, len(terms)) + 1):
+                for start in range(len(terms) - length + 1):
+                    phrase_terms = terms[start : start + length]
+                    is_generic = all(
+                        term.isdigit() or term in GENERIC_FEATURE_PHRASE_TERMS
+                        for term in phrase_terms
+                    )
+                    if not is_generic:
+                        phrases.add(" ".join(phrase_terms))
+        return phrases
+
+    def _exact_feature_phrase_bonus(
+        self,
+        product: ProductDocument,
+        constraints: dict,
+    ) -> float:
+        feature = constraints.get("feature")
+        if feature is None:
+            return 0.0
+        haystack = product.full_tokens
+        phrases = self._feature_phrases(feature)
+        if any(f" {phrase} " in haystack for phrase in phrases):
+            return EXACT_FEATURE_PHRASE_BONUS
+        return 0.0
+
     def _rerank_score(
         self,
         product: ProductDocument,
@@ -321,6 +375,7 @@ class CatalogSearch:
                 for value in values
             ):
                 return None
+        score += self._exact_feature_phrase_bonus(product, constraints)
         return score
 
     def _candidate_attribute_stats(
