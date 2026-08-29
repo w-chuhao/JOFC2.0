@@ -148,14 +148,16 @@ BM25 score                       -> base relevance
 
 Keep this transparent and tune its weights only by running the public evaluator. This is your first complete solution.
 
-## Optional improvement: semantic search or an LLM
+## Retrieval evolution: intent routing and lexical candidates
 
-Only consider this after the deterministic version works and is merged.
+Keep the deterministic version as the required baseline, then evaluate each step independently with no regression to Hit Rate@10.
 
-- **Semantic search:** make a local embedding for each product and the customer query, compare them with cosine similarity, and combine the best semantic candidates with BM25 candidates. Keep everything in memory; do not build PostgreSQL or pgvector.
-- **LLM planner:** optionally use one to propose a structured `StateDelta` and one question from aggregate candidate statistics. It cannot replace catalog retrieval or generate recommendations. It requires your own key, cost/latency/token reporting, strict schema validation, timeouts, and a reliable no-LLM fallback.
+1. **Constraint-aware precision:** carry required, preferred, and excluded values from state into retrieval. Use hard filters only for explicit, reliable Buying constraints; use soft preferences and popularity as reranking signals; reject excluded matches.
+2. **Buying/Browsing routing:** send precise requests to a filter-first route and vague requests to a broader, diversity-aware route. If the candidate pool remains too broad, ask the missing attribute with the highest information gain rather than following a fixed question order.
+3. **Aliases and field routes:** add catalog-specific category aliases and exact-title, category, brand, details, and feature routes before fusion.
+4. **LLM planner:** optionally use one only for validated `StateDelta` or clarification proposals; it cannot select, rank, or invent product IDs. An API-backed planner remains an experiment, not a scoring dependency.
 
-Neither is required to submit a strong project. Do not add either if it risks the working baseline.
+The evaluator treats every conversation as an isolated session. The supplied profile may influence the current session's ranking or question choice, but the agent must not persist user information across sessions. Inputs are pre-cleaned, so typo/ASR correction is out of scope.
 
 ## File structure you should aim for
 
@@ -198,7 +200,7 @@ The starter reference is Hit Rate@10 `0.125`, MRR `0.068034`, and MTTC `9.81`. Y
 | Thu | Add session state, basic constraint extraction, and reusable BM25 search. |
 | Fri | Add filtering, state-aware ranking, questions, and override handling. |
 | Sat | Integrate and tune against the 200 public sessions. Compare every change to baseline. |
-| Sun | Add tests, analyse failures by scenario, and optionally trial semantic retrieval. |
+| Sun | Add tests and analyse failures by scenario. |
 | Mon 10:00 AM | Feature freeze. From now on: only fixes, tests, documentation, and demo work. |
 | Mon PM | README, Devpost text, metrics table, demo video, clean-run rehearsal. |
 | Tue 09:00-11:30 AM | Final evaluator, clean-clone test, check links and secrets, submit. |

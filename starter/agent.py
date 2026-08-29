@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 from pathlib import Path
 
+from starter import state
 from starter.conversation_llm import (
     ConversationLLM,
     DeepSeekConversationLLM,
@@ -95,13 +96,26 @@ class Agent:
             if constraints_changed
             else self._shown_recommendation_ids(state)
         )
+        priorities = state.constraint_priorities()
+        route = (
+            "buying"
+            if any(
+                attribute not in {"category"} and priority == "required"
+                for attribute, priority in priorities.items()
+            )
+            else "browsing"
+        )
 
         result = self.retrieval.search(
             query=user_message,
             constraints=state.constraints,
             top_k=top_k,
             exclude_ids=exclude_ids,
+            constraint_priorities=priorities,
+            excluded_constraints=state.excluded_constraints,
+            route=route,
         )
+        state.last_search_diagnostics = result.diagnostics
         recommendations = [
             {"parent_asin": parent_asin}
             for parent_asin in result.recommendation_ids

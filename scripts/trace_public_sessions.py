@@ -94,6 +94,18 @@ def trace_session(
         ranked = normalize_recommendations(response.get("recommendations"), catalog_ids)
         target_rank = ranked.index(target) + 1 if target in ranked else None
         scored_hit = override_applied and target_rank is not None
+        state = getattr(agent, "sessions", {}).get(f"trace_{sample_id}")
+        state_snapshot = {
+            "constraints": dict(getattr(state, "constraints", {})),
+            "priorities": (
+                state.constraint_priorities() if state is not None else {}
+            ),
+            "excluded_constraints": {
+                attribute: sorted(values)
+                for attribute, values in getattr(state, "excluded_constraints", {}).items()
+                if values
+            },
+        }
         turns.append(
             {
                 "turn": turn,
@@ -105,6 +117,8 @@ def trace_session(
                 "scored_hit": scored_hit,
                 "usage": response.get("usage"),
                 "agent_error": agent_error,
+                "state": state_snapshot,
+                "retrieval": getattr(state, "last_search_diagnostics", {}),
             }
         )
         if scored_hit:

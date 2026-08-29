@@ -248,6 +248,7 @@ REQUEST_ATTRIBUTE_RE = re.compile(
     r"\bask me about (?:one |a )?specific attribute\b",
     re.IGNORECASE,
 )
+REQUIRED_INTENT_RE = re.compile(r"\b(?:need|must|require)\b", re.IGNORECASE)
 
 
 ConstraintValue = str | float | None
@@ -288,6 +289,7 @@ class SessionState:
     consecutive_no_preference: int = 0
     other_questions_asked: int = 0
     override_seen: bool = False
+    last_search_diagnostics: dict[str, object] = field(default_factory=dict)
 
     @classmethod
     def create(cls, user_profile: dict) -> SessionState:
@@ -306,6 +308,25 @@ class SessionState:
                 seen.add(lowered)
                 values.append(text)
         return " ".join(values)
+
+    def constraint_priorities(self) -> dict[str, str]:
+        """Classify current constraints for retrieval without changing state."""
+        priorities: dict[str, str] = {}
+        for attribute, evidence in self.constraint_evidence.items():
+            if not evidence:
+                continue
+            latest = evidence[-1]
+            if attribute in {"category", "budget"} or latest.source_kind in {
+                "override",
+                "disclosed",
+                "clarification",
+                "required",
+                "llm_required",
+            }:
+                priorities[attribute] = "required"
+            else:
+                priorities[attribute] = "preferred"
+        return priorities
 
 
 def _clean_value(value: str) -> str:
@@ -545,6 +566,8 @@ def _source_kind(
         return "clarification"
     if DISCLOSED_REQUIREMENT_RE.search(message):
         return "disclosed"
+    if REQUIRED_INTENT_RE.search(message):
+        return "required"
     if source_turn == 1 and attribute != "category":
         return "initial_preference"
     return "direct"

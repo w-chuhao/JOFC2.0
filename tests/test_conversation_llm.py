@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import ssl
 import unittest
 import urllib.error
 from unittest import mock
@@ -111,6 +112,32 @@ class ConversationLLMResilienceTest(unittest.TestCase):
         self.assertEqual(client._consecutive_failures, 1)
         self.assertFalse(client._disabled)
         self.assertEqual(usage.prompt_tokens, 5)
+
+    def test_healthcheck_uses_a_small_response_limit(self) -> None:
+        client = self._client()
+        with mock.patch(
+            "starter.conversation_llm.urllib.request.urlopen",
+            return_value=_FakeResponse(VALID_PAYLOAD),
+        ) as open_request:
+            ok, usage = client.healthcheck()
+        request_body = json.loads(open_request.call_args.args[0].data.decode("utf-8"))
+        self.assertTrue(ok)
+        self.assertEqual(usage.completion_tokens, 2)
+        self.assertEqual(request_body["max_tokens"], 16)
+
+    def test_ssl_store_error_retries_with_file_ca_bundle(self) -> None:
+        client = self._client()
+        with mock.patch(
+            "starter.conversation_llm.urllib.request.urlopen",
+            side_effect=[ssl.SSLError("bad store"), _FakeResponse(VALID_PAYLOAD)],
+        ) as open_request, mock.patch(
+            "starter.conversation_llm._fallback_ssl_context",
+            return_value=mock.sentinel.context,
+        ):
+            payload, _ = client.interpret({}, None, "hi")
+        self.assertEqual(payload, {"ok": True})
+        self.assertEqual(open_request.call_count, 2)
+        self.assertIs(open_request.call_args.kwargs["context"], mock.sentinel.context)
 
 
 if __name__ == "__main__":

@@ -7,7 +7,6 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
-
 TOKEN_RE = re.compile(r"[a-z0-9]+", re.IGNORECASE)
 STOPWORDS = {
     "a",
@@ -53,10 +52,32 @@ ATTRIBUTE_WEIGHTS = {
     "feature": 2.5,
     "use_case": 2.0,
 }
+SOFT_CONSTRAINT_MULTIPLIER = 0.4
+ALIASES = {
+    "parka": ("jacket",),
+    "jacket": ("parka",),
+    "button down": ("shirt",),
+    "bike shorts": ("shorts",),
+    "handbag": ("purse",),
+    "purse": ("handbag",),
+    "footwear": ("shoes",),
+}
 STAT_CATEGORY_TERMS = (
     "earrings", "necklaces", "bracelets", "rings", "watches", "shoes", "boots",
     "sandals", "sneakers", "dress", "dresses", "shirt", "shirts", "jacket",
     "jackets", "jeans", "pants", "handbag", "backpack", "belt", "scarf",
+)
+STAT_COLOR_TERMS = (
+    "black", "white", "blue", "red", "pink", "green", "brown", "gray",
+    "purple", "yellow", "orange", "gold", "silver", "beige", "navy",
+)
+STAT_STYLE_TERMS = (
+    "casual", "formal", "vintage", "classic", "modern", "sporty",
+    "minimalist", "slim", "oversized",
+)
+STAT_USE_CASE_TERMS = (
+    "running", "hiking", "walking", "workout", "gym", "winter", "outdoor",
+    "travel", "wedding", "swimming",
 )
 STAT_MATERIAL_TERMS = (
     "leather", "stainless steel", "sterling silver", "silver", "gold", "cotton",
@@ -120,6 +141,7 @@ class SearchResult:
 
     recommendation_ids: list[str]
     candidate_attribute_stats: dict[str, dict[str, int]]
+    diagnostics: dict[str, object]
 
 
 class CatalogSearch:
@@ -194,13 +216,27 @@ class CatalogSearch:
         value = constraints.get(key)
         return "" if value is None else str(value).strip()
 
-    def _candidate_scores(self, query: str, constraints: dict) -> dict[str, float]:
+    @staticmethod
+    def _expand_aliases(text: str) -> str:
+        expanded = [text]
+        lowered = text.casefold()
+        for alias, replacements in ALIASES.items():
+            if re.search(rf"\b{re.escape(alias)}\b", lowered):
+                expanded.extend(replacements)
+        return " ".join(expanded)
+
+    def _candidate_scores(
+        self,
+        query: str,
+        constraints: dict,
+        priorities: dict[str, str],
+    ) -> dict[str, float]:
         constraint_values = [
             self._constraint_text(constraints, key)
             for key in ATTRIBUTE_WEIGHTS
             if self._constraint_text(constraints, key)
         ]
-        combined_query = " ".join((query, *constraint_values)).strip() or query
+        combined_query = self._expand_aliases(" ".join((query, *constraint_values)).strip() or query)
         routes: list[tuple[str, float, int]] = [(combined_query, 2.0, 800)]
         route_settings = {
             "category": (3.0, 500),
@@ -215,7 +251,7 @@ class CatalogSearch:
         for key, (weight, limit) in route_settings.items():
             value = self._constraint_text(constraints, key)
             if value:
-                routes.append((value, weight, limit))
+                routes.append((self._expand_aliases(value), weight, limit))
 
         scores: dict[str, float] = {}
         seen_queries: set[str] = set()
@@ -247,7 +283,7 @@ class CatalogSearch:
         attribute: str,
         value: object,
     ) -> float:
-        terms = list(dict.fromkeys(_terms(str(value))))
+        terms = list(dict.fromkeys(_terms(self._expand_aliases(str(value)))))
         if not terms:
             return 0.0
         haystack = self._attribute_haystack(product, attribute)
@@ -259,6 +295,8 @@ class CatalogSearch:
         product: ProductDocument,
         retrieval_score: float,
         constraints: dict,
+        priorities: dict[str, str],
+        exclusions: dict[str, set[str]],
     ) -> float | None:
         budget = constraints.get("budget")
         if isinstance(budget, (int, float)) and product.price is not None:
@@ -272,30 +310,45 @@ class CatalogSearch:
             if value is None:
                 continue
             coverage = self._attribute_coverage(product, attribute, value)
+            multiplier = 1.0 if priorities.get(attribute) == "required" else SOFT_CONSTRAINT_MULTIPLIER
             if coverage:
-                score += weight * coverage
+                score += weight * multiplier * coverage
             else:
-                score -= MISSING_ATTRIBUTE_PENALTIES[attribute]
+                score -= MISSING_ATTRIBUTE_PENALTIES[attribute] * multiplier
+        for attribute, values in exclusions.items():
+            if any(
+                self._attribute_coverage(product, attribute, value) >= 0.5
+                for value in values
+            ):
+                return None
         return score
 
     def _candidate_attribute_stats(
         self,
         ranked_ids: list[str],
     ) -> dict[str, dict[str, int]]:
-        categories: Counter[str] = Counter()
-        materials: Counter[str] = Counter()
+        counters = {
+            "category": Counter[str](),
+            "material": Counter[str](),
+            "color": Counter[str](),
+            "style": Counter[str](),
+            "use_case": Counter[str](),
+        }
+        terms_by_attribute = {
+            "category": STAT_CATEGORY_TERMS,
+            "material": STAT_MATERIAL_TERMS,
+            "color": STAT_COLOR_TERMS,
+            "style": STAT_STYLE_TERMS,
+            "use_case": STAT_USE_CASE_TERMS,
+        }
         for parent_asin in ranked_ids[:50]:
             product = self.products[parent_asin]
-            for category in STAT_CATEGORY_TERMS:
-                if f" {category} " in product.category_tokens:
-                    categories[category] += 1
-            for material in STAT_MATERIAL_TERMS:
-                if f" {material} " in product.full_tokens:
-                    materials[material] += 1
-        return {
-            "category": dict(categories.most_common(10)),
-            "material": dict(materials.most_common(10)),
-        }
+            for attribute, terms in terms_by_attribute.items():
+                haystack = self._attribute_haystack(product, attribute)
+                for term in terms:
+                    if f" {term} " in haystack:
+                        counters[attribute][term] += 1
+        return {attribute: dict(counter.most_common(10)) for attribute, counter in counters.items()}
 
     def search(
         self,
@@ -304,6 +357,9 @@ class CatalogSearch:
         top_k: int,
         *,
         exclude_ids: set[str] | None = None,
+        constraint_priorities: dict[str, str] | None = None,
+        excluded_constraints: dict[str, set[str]] | None = None,
+        route: str = "browsing",
     ) -> SearchResult:
         """Return ranked IDs and statistics using current validated constraints.
 
@@ -312,9 +368,11 @@ class CatalogSearch:
         """
         limit = max(0, top_k)
         if limit == 0:
-            return SearchResult([], {"category": {}, "material": {}})
+            return SearchResult([], {}, {"candidate_count": 0, "route": route})
 
-        candidate_scores = self._candidate_scores(query, constraints)
+        priorities = constraint_priorities or {}
+        exclusions = excluded_constraints or {}
+        candidate_scores = self._candidate_scores(query, constraints, priorities)
         candidate_ids = list(candidate_scores) or list(self.products)
         category = constraints.get("category")
         if category is not None:
@@ -338,6 +396,8 @@ class CatalogSearch:
                 product,
                 candidate_scores.get(parent_asin, 0.0),
                 constraints,
+                priorities,
+                exclusions,
             )
             if score is not None:
                 ranked.append((score, parent_asin))
@@ -351,4 +411,10 @@ class CatalogSearch:
                 if parent_asin not in excluded
             ][:limit],
             candidate_attribute_stats=self._candidate_attribute_stats(ranked_ids),
+            diagnostics={
+                "candidate_count": len(candidate_ids),
+                "ranked_count": len(ranked_ids),
+                "route": route,
+                "active_exclusion_count": sum(len(values) for values in exclusions.values()),
+            },
         )

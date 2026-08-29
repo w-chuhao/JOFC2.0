@@ -7,7 +7,7 @@ from pathlib import Path
 
 from starter.agent import Agent
 from starter.conversation_llm import TokenUsage
-from starter.state import ALLOWED_ATTRIBUTES
+from starter.state import ALLOWED_ATTRIBUTES, SessionState, choose_clarification
 
 
 CATALOG_ROWS = [
@@ -166,6 +166,24 @@ class AgentConversationTest(unittest.TestCase):
         )
 
         self.assertEqual(second_response["ask_attribute"], "feature")
+
+    def test_fixed_clarification_order(self) -> None:
+        state = SessionState.create({})
+        state.constraints["category"] = "shoes"
+        state.asked_attributes.add("category")
+
+        attribute = choose_clarification(state, turn=1)
+
+        self.assertEqual(attribute, "material")
+
+    def test_explicit_need_is_recorded_as_a_required_constraint(self) -> None:
+        self.agent.reset("session", {})
+        self.agent.respond("session", "I need black leather shoes.", 1, 10)
+
+        priorities = self.agent.sessions["session"].constraint_priorities()
+        self.assertEqual(priorities["category"], "required")
+        self.assertEqual(priorities["material"], "required")
+        self.assertEqual(priorities["color"], "required")
 
     def test_override_replaces_old_category_and_color(self) -> None:
         self.agent.reset("session", {})

@@ -60,7 +60,6 @@ Turn the catalog and the latest customer requirements into a strong, valid Top-1
 4. Ensure outputs are unique, real catalog IDs and contain no more than `top_k` recommendations.
 5. Return aggregate candidate-attribute statistics from a larger candidate pool, so Person 2 can choose a follow-up question that actually separates candidates.
 6. Keep a simple BM25-only fallback; do not make the entire agent depend on a downloaded model or external service.
-7. If the local agent is stable by Sunday, optionally test semantic candidate retrieval. It must be in-memory and must be compared with BM25 using the official evaluator.
 
 ### Tests to write
 
@@ -76,7 +75,6 @@ Turn the catalog and the latest customer requirements into a strong, valid Top-1
 | Thu 18:00 | `search()` interface agreed and a BM25-only version callable by Person 2. |
 | Fri 18:00 | Constraint-aware ranking and tests committed. |
 | Sat 12:00 | Retrieval is integrated into the evaluator-facing `Agent`. |
-| Sun 18:00 | Optional semantic experiment results or a documented decision not to add it. |
 
 ## Person 2 - Conversation and decision engineer
 
@@ -172,7 +170,7 @@ Make improvements measurable, catch regressions before they reach submission, an
 | Thu | Create callable `search()` and candidate statistics | Create session state, StateDelta schema, and deterministic extractor | Create metrics log and contract tests | Agree shared constraints interface by 18:00. |
 | Fri | Add filters/reranking | Add questions/overrides and validated optional planner | Test outputs and track metrics | First integrated agent by end of day. |
 | Sat | Tune retrieval | Tune state/question policy | Run evaluator and analyse failures | Beat baseline without regressions. |
-| Sun | Optional semantic trial | Improve failure cases | Reproducibility/error analysis | Decide final technical scope. |
+| Sun | Improve failure cases | Reproducibility/error analysis | Decide final technical scope. |
 | Mon | Fix only scored defects | Fix only scored defects | Docs/demo/final test | Feature freeze at 10:00. |
 | Tue | Final evaluation | Final scenario smoke test | Submission verification | Submit by 11:30. |
 

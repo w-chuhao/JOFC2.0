@@ -27,19 +27,19 @@ local development rather than a guaranteed final score.
 | Metric | Latest result | Ideal score | What it measures |
 |---|---:|---:|---|
 | Sessions | 200 | N/A | Number of labelled public conversations evaluated. |
-| Hit Rate@10 | 0.925 (185/200) | 1.000 (200/200) | Fraction of sessions where the target appears in the Top 10 on at least one turn. |
-| MRR | 0.579095 | 1.000 | Ranking quality: rank 1 contributes 1, rank 2 contributes 0.5, rank 10 contributes 0.1, and a miss contributes 0. |
-| MTTC | 3.670 turns | 1.000 turn | Mean first turn on which the target appears. Lower is better; a miss is assigned turn 11. |
-| Efficiency | 0.733 | 1.000 | Speed score calculated as `clip((11 - MTTC) / 10, 0, 1)`. |
-| Recommended Technical Score | 0.782829 | 1.000 | Weighted overall score: `0.50 * Hit Rate@10 + 0.30 * MRR + 0.20 * Efficiency`. |
+| Hit Rate@10 | 0.995 (199/200) | 1.000 (200/200) | Fraction of sessions where the target appears in the Top 10 on at least one turn. |
+| MRR | 0.600369 | 1.000 | Ranking quality: rank 1 contributes 1, rank 2 contributes 0.5, rank 10 contributes 0.1, and a miss contributes 0. |
+| MTTC | 3.180 turns | 1.000 turn | Mean first turn on which the target appears. Lower is better; a miss is assigned turn 11. |
+| Efficiency | 0.782 | 1.000 | Speed score calculated as `clip((11 - MTTC) / 10, 0, 1)`. |
+| Recommended Technical Score | 0.834011 | 1.000 | Weighted overall score: `0.50 * Hit Rate@10 + 0.30 * MRR + 0.20 * Efficiency`. |
 | Reported LLM tokens | 0 prompt / 0 completion | No required perfect value | The run used deterministic retrieval/state fallbacks and made no LLM calls. Token use is reported for feasibility, not included in the Technical Score. |
 
 | Scenario | Sessions | Hit Rate@10 | MRR | MTTC | Reading the result |
 |---|---:|---:|---:|---:|---|
-| Boundary | 10 | 1.000 | 0.831111 | 4.300 | Every target was found; ranking was strong, though some answers arrived later in the dialogue. |
-| Browsing | 80 | 0.950 | 0.587192 | 3.275 | Strongest regular-use coverage: 76 of 80 targets were found. |
-| Buying | 80 | 0.900 | 0.509469 | 3.500 | 72 of 80 targets were found; this is the main ranking-quality opportunity. |
-| Intent Override | 30 | 0.900 | 0.659167 | 4.966667 | 27 of 30 targets were found and ranked well, but preference changes take longer to resolve. |
+| Boundary | 10 | 1.000 | 0.752778 | 3.900 | Every target was found; the remaining opportunity is earlier ranking. |
+| Browsing | 80 | 1.000 | 0.590179 | 2.9625 | Coverage is complete; improve rank quality with better candidate separation. |
+| Buying | 80 | 1.000 | 0.552951 | 2.7875 | Coverage is complete; high-precision hard-constraint ranking is the main opportunity. |
+| Intent Override | 30 | 0.966667 | 0.703188 | 4.566667 | One miss remains; preference changes still take the most turns to resolve. |
 
 For all scored metrics, higher is better except MTTC, where the best possible
 value is turn 1. A perfect Technical Score is therefore 1.000.
@@ -61,6 +61,8 @@ Do not build a UI, database server, PostgreSQL, pgvector deployment, or cloud se
 ## Non-negotiable rules
 
 - Do **not** modify `evaluator/`, `data/public_set.jsonl`, or `data/catalog.jsonl`. The evaluator is frozen; build companion scripts outside `evaluator/` for tracing, diagnostics, or local analysis.
+- Treat every evaluator session as isolated. Use the supplied aggregate `user_profile` only as short-term session context; do not create cross-session user memory or profile persistence.
+- Do not add spelling-correction or ASR-noise handling to the competition path: evaluator inputs are pre-cleaned text.
 - Do **not** read public-session target labels from inside the agent or hard-code target ASINs.
 - Do **not** invent product IDs. Every recommendation must be a real catalog `parent_asin`.
 - Return at most ten distinct recommendations on every turn, including turns where a question is asked.
@@ -104,17 +106,32 @@ Both LLM outputs are proposals only. Deterministic code owns validation, state m
 
 The starter's SQLite FTS5/BM25 index is a useful base, not disposable code. Improve it through better query construction, filtering, and transparent reranking.
 
-## TODO: Person 1 - improving catalogue retrieval
+## Current retrieval implementation and remaining validation
 
-The current system misses 20 of 200 targets, mainly because of ranking rather than retrieval: every missed target entered the candidate pool, and 12 reached ranks 11-20. Generic clues such as `cotton`, `polyester`, and `Imported` are insufficient to distinguish similar products, while repeated recommendations limit exploration.
+The agent now rotates results across turns, represents required/preferred/excluded constraints explicitly, applies exclusions inside retrieval, uses catalog aliases, and returns candidate statistics for diagnostics. Clarification follows a fixed deterministic question order. Generic clues such as `cotton`, `polyester`, and `Imported` are still weak discriminators, so ranking quality and unseen-session robustness remain the main risks.
 
-Person 1 should prioritize:
+The implemented retrieval paths are:
 
-- Rotating recommendations across turns while resetting appropriately after intent overrides. A diagnostic rotation test improved HR@10 from `0.900` to `0.990`.
-- Treating required, preferred, excluded, and unknown attributes differently during filtering and ranking.
-- Giving more weight to distinctive leaf-category, title, brand, material, and feature matches.
-- Providing candidate statistics so Person 2 can ask the attribute that best narrows the results.
-- Testing synonyms, typo tolerance, semantic fallback, and a modest popularity tie-breaker.
+- **Buying:** precision-oriented scoring with required constraints at full weight, excluded-match rejection, and constraint-aware reranking. Candidate construction must remain inclusive; it does not use a strict all-term (AND) query route.
+- **Browsing:** broader multi-route BM25 candidates, result diversification, and the same fixed clarification order.
+
+### Rejected retrieval experiments (29 August 2026)
+
+The public-set ablation retained the existing exclusion and hard/soft constraint logic, while testing two proposed additions: candidate-statistics-driven clarification selection and a strict Buying-only BM25 AND route for two or more required values. Neither is part of the current implementation.
+
+| Configuration | Hit Rate@10 | MRR | MTTC | Technical Score |
+|---|---:|---:|---:|---:|
+| Fixed clarification only | 0.985 | 0.589452 | 3.240 | 0.824536 |
+| Strict Buying AND route disabled only | 0.990 | 0.613825 | 3.990 | 0.819348 |
+| Both additions disabled (chosen) | 0.995 | 0.600369 | 3.180 | 0.834011 |
+
+Do not reintroduce either feature without a new controlled ablation that improves the overall Technical Score without an unacceptable Hit Rate@10 or MTTC regression. The strict AND route modestly improved MRR in isolation but lengthened conversations enough to reduce the composite score.
+
+Person 1 should now prioritize evaluation and careful tuning rather than adding unmeasured complexity:
+
+- Measure each route with the public evaluator, scenario metrics, trace output, latency, and cross-turn uniqueness.
+- Retain a change only when Hit Rate@10 does not regress and MRR, MTTC, or the composite score improves overall or in its intended weak scenario.
+- Consider a modest popularity tie-breaker only if trace evidence identifies an ambiguity it resolves; do not add typo correction because evaluator inputs are pre-cleaned.
 
 Evaluate each improvement using HR@10, MRR, MTTC, cross-turn uniqueness, latency, and paraphrased or unseen edge cases to avoid overfitting the 200 public sessions.
 

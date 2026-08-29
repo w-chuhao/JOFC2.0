@@ -4,6 +4,8 @@ import json
 import logging
 import os
 import socket
+import ssl
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -146,6 +148,25 @@ def _configured_value(project_root: Path, *names: str) -> str | None:
     return None
 
 
+def _fallback_ssl_context() -> ssl.SSLContext:
+    """Use a file CA bundle when the Windows certificate store is malformed."""
+    candidates = [
+        os.environ.get("SSL_CERT_FILE"),
+        str(Path(sys.prefix) / "Library" / "ssl" / "cacert.pem"),
+    ]
+    try:
+        import certifi
+
+        candidates.append(certifi.where())
+    except ImportError:
+        pass
+
+    for candidate in candidates:
+        if candidate and Path(candidate).is_file():
+            return ssl.create_default_context(cafile=candidate)
+    raise ssl.SSLError("No usable file-based CA bundle is available")
+
+
 class DeepSeekConversationLLM:
     """Small, optional DeepSeek client for Person 2 conversation decisions."""
 
@@ -223,7 +244,23 @@ class DeepSeekConversationLLM:
                 % (reason, self._consecutive_failures)
             )
 
-    def _request_json(self, system_prompt: str, user_payload: dict) -> tuple[dict | None, TokenUsage]:
+    def _open_request(self, request: urllib.request.Request):
+        try:
+            return urllib.request.urlopen(request, timeout=self.timeout_seconds)
+        except ssl.SSLError:
+            return urllib.request.urlopen(
+                request,
+                timeout=self.timeout_seconds,
+                context=_fallback_ssl_context(),
+            )
+
+    def _request_json(
+        self,
+        system_prompt: str,
+        user_payload: dict,
+        *,
+        max_tokens: int = 700,
+    ) -> tuple[dict | None, TokenUsage]:
         if self._disabled:
             return None, TokenUsage()
 
@@ -239,7 +276,7 @@ class DeepSeekConversationLLM:
             "response_format": {"type": "json_object"},
             "thinking": {"type": "disabled"},
             "temperature": 0,
-            "max_tokens": 700,
+            "max_tokens": max(1, max_tokens),
             "stream": False,
         }
         request = urllib.request.Request(
@@ -254,10 +291,7 @@ class DeepSeekConversationLLM:
 
         for attempt in range(self.max_attempts):
             try:
-                with urllib.request.urlopen(
-                    request,
-                    timeout=self.timeout_seconds,
-                ) as response:
+                with self._open_request(request) as response:
                     api_payload = json.loads(response.read().decode("utf-8"))
             except urllib.error.HTTPError as error:
                 retryable = error.code in {408, 409, 429} or error.code >= 500
@@ -269,7 +303,7 @@ class DeepSeekConversationLLM:
                     continue
                 self._record_failure(f"HTTP {error.code}")
                 return None, TokenUsage()
-            except (urllib.error.URLError, TimeoutError, socket.timeout):
+            except (urllib.error.URLError, TimeoutError, socket.timeout, ssl.SSLError):
                 if attempt < self.max_attempts - 1:
                     time.sleep(0.5 * (2**attempt))
                     continue
@@ -328,3 +362,12 @@ class DeepSeekConversationLLM:
                 "candidate_summary": candidate_summary,
             },
         )
+
+    def healthcheck(self) -> tuple[bool, TokenUsage]:
+        """Make one minimal request to verify the configured API connection."""
+        payload, usage = self._request_json(
+            'Reply only with {"ok":true}.',
+            {},
+            max_tokens=16,
+        )
+        return payload == {"ok": True}, usage

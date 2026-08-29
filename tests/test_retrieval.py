@@ -206,6 +206,52 @@ class CatalogSearchTest(unittest.TestCase):
         self.assertEqual(len(second.recommendation_ids), 1)
         self.assertNotEqual(first.recommendation_ids, second.recommendation_ids)
 
+    def test_negative_constraint_removes_conflicting_products(self) -> None:
+        result = self.search.search(
+            query="black leather shoes",
+            constraints=constraints(category="shoes"),
+            top_k=10,
+            excluded_constraints={"color": {"black"}},
+        )
+
+        self.assertNotIn("SHOE_IN_BUDGET", result.recommendation_ids)
+        self.assertNotIn("SHOE_OVER_BUDGET", result.recommendation_ids)
+        self.assertNotIn("SHOE_CANVAS", result.recommendation_ids)
+
+    def test_alias_route_recovers_footwear_as_shoes(self) -> None:
+        result = self.search.search(
+            query="footwear",
+            constraints=constraints(),
+            top_k=3,
+        )
+
+        self.assertTrue(
+            any(parent_asin.startswith("SHOE_") for parent_asin in result.recommendation_ids)
+        )
+
+    def test_required_constraint_has_more_ranking_weight_than_preferred(self) -> None:
+        required = self.search.search(
+            query="black walking shoes",
+            constraints=constraints(category="shoes", material="leather"),
+            top_k=10,
+            constraint_priorities={"category": "required", "material": "required"},
+            route="buying",
+        )
+        preferred = self.search.search(
+            query="black walking shoes",
+            constraints=constraints(category="shoes", material="leather"),
+            top_k=10,
+            constraint_priorities={"category": "required", "material": "preferred"},
+            route="browsing",
+        )
+
+        self.assertLess(
+            required.recommendation_ids.index("SHOE_IN_BUDGET"),
+            required.recommendation_ids.index("SHOE_CANVAS"),
+        )
+        self.assertLessEqual(
+            required.diagnostics["candidate_count"], preferred.diagnostics["candidate_count"]
+        )
 
 if __name__ == "__main__":
     unittest.main()
