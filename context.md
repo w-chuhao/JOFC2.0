@@ -60,7 +60,7 @@ Do not build a UI, database server, PostgreSQL, pgvector deployment, or cloud se
 
 ## Non-negotiable rules
 
-- Do **not** modify `evaluator/`, `data/public_set.jsonl`, or `data/catalog.jsonl`.
+- Do **not** modify `evaluator/`, `data/public_set.jsonl`, or `data/catalog.jsonl`. The evaluator is frozen; build companion scripts outside `evaluator/` for tracing, diagnostics, or local analysis.
 - Do **not** read public-session target labels from inside the agent or hard-code target ASINs.
 - Do **not** invent product IDs. Every recommendation must be a real catalog `parent_asin`.
 - Return at most ten distinct recommendations on every turn, including turns where a question is asked.
@@ -174,7 +174,7 @@ All contributors write tests and participate in daily integration. See `PROJECT_
 2. Preserve the `Agent.reset()` and `Agent.respond()` contract.
 3. Add or update a test when changing retrieval, state, response formatting, or error handling.
 4. Run the official evaluator from the repository root. To append the result,
-   tester, and timestamp to `metrics/evaluation_history.json`, use the tracker
+   tester, and timestamp to `outputs/evaluation_history.json`, use the tracker
    wrapper:
 
    ```powershell

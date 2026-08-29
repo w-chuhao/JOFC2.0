@@ -23,7 +23,7 @@ SUMMARY_KEYS = (
     "scenario_metrics",
 )
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_HISTORY_PATH = REPOSITORY_ROOT / "metrics" / "evaluation_history.json"
+DEFAULT_HISTORY_PATH = REPOSITORY_ROOT / "outputs" / "evaluation_history.json"
 DEFAULT_RESULTS_PATH = REPOSITORY_ROOT / "results.json"
 
 

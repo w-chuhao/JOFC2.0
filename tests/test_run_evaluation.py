@@ -5,7 +5,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.run_evaluation import append_evaluation_run, evaluation_summary
+from scripts.run_evaluation import (
+    DEFAULT_HISTORY_PATH,
+    REPOSITORY_ROOT,
+    append_evaluation_run,
+    evaluation_summary,
+)
 
 
 RESULTS = {
@@ -22,6 +27,12 @@ RESULTS = {
 
 
 class EvaluationHistoryTest(unittest.TestCase):
+    def test_default_history_is_stored_under_outputs(self) -> None:
+        self.assertEqual(
+            DEFAULT_HISTORY_PATH,
+            REPOSITORY_ROOT / "outputs" / "evaluation_history.json",
+        )
+
     def test_append_evaluation_run_records_summary_and_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

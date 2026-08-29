@@ -43,6 +43,19 @@ python3 -m evaluator.local_evaluator
 Edit `starter/agent.py` to implement your system. Do not edit the evaluator or public labels when reporting your local score.
 The command writes per-session results and aggregate metrics to `results.json`.
 
+## Trace Public Conversations
+
+To inspect the evaluator's customer prompts and your agent's replies on a balanced
+20-session public subset (five sessions per scenario), run:
+
+```bash
+python3 -m scripts.trace_public_sessions
+```
+
+The command prints each conversation and saves the full JSON trace to
+`outputs/public_prompt_trace.json`. Use `--sample-ids public_0001,public_0014`
+to trace selected sessions instead.
+
 The included weak BM25 starter scores Hit Rate@10 `0.125`, MRR `0.068034`, and
 MTTC `9.81` on the released public set. See `docs/baseline_results.json`.
 
