@@ -93,6 +93,8 @@ STAT_SIZE_TERMS = (
     "small", "medium", "large", "wide", "narrow", "slim", "plus size",
 )
 RATING_WEIGHT = 0.002
+COMMON_FEATURE_DOCUMENT_FRACTION = 0.03
+COMMON_FEATURE_MIN_DOCUMENTS = 50
 MISSING_ATTRIBUTE_PENALTIES = {
     "category": 4.0,
     "material": 1.0,
@@ -233,6 +235,8 @@ class CatalogSearch:
         )
         self.connection = sqlite3.connect(":memory:")
         self.products: dict[str, ProductDocument] = {}
+        self.feature_term_document_frequency: Counter[str] = Counter()
+        self.catalog_size = 0
         self._build_index()
 
     def _build_index(self) -> None:
@@ -251,6 +255,8 @@ class CatalogSearch:
                 categories = _text(product.get("categories"))
                 features = _text(product.get("features"))
                 details = _text(product.get("details"))
+                self.catalog_size += 1
+                self.feature_term_document_frequency.update(set(_terms(f"{features} {details}")))
                 store = _text(product.get("store"))
                 description = _text(product.get("description"))
                 full_text = " ".join(
@@ -449,11 +455,41 @@ class CatalogSearch:
         matched = sum(f" {term} " in haystack for term in terms)
         return matched / len(terms)
 
+    def _is_common_feature_clause(self, value: object) -> bool:
+        terms = [term for term in _terms(str(value)) if not term.isdigit()]
+        if not terms or self.catalog_size == 0:
+            return False
+        minimum_frequency = max(
+            COMMON_FEATURE_MIN_DOCUMENTS,
+            math.ceil(self.catalog_size * COMMON_FEATURE_DOCUMENT_FRACTION),
+        )
+        return all(
+            self.feature_term_document_frequency[term] >= minimum_frequency
+            for term in set(terms)
+        )
+
     @staticmethod
-    def _feature_phrases(value: object) -> set[str]:
+    def _feature_clause_is_explicit(source_kind: str) -> bool:
+        return source_kind in {"required", "disclosed", "override", "llm_required"}
+
+    def feature_priority(self, feature_evidence: list[tuple[str, str]]) -> str:
+        """Return required unless every supplied feature clause is catalog-common."""
+        if not feature_evidence:
+            return "preferred"
+        if any(
+            self._feature_clause_is_explicit(source_kind)
+            or not self._is_common_feature_clause(value)
+            for value, source_kind in feature_evidence
+        ):
+            return "required"
+        return "preferred"
+
+    def _feature_phrases(self, value: object) -> set[str]:
         """Return distinctive two-to-five-token phrases from a feature clue."""
         phrases: set[str] = set()
         for clause in str(value).split(";"):
+            if self._is_common_feature_clause(clause):
+                continue
             terms = _terms(clause)
             for length in range(2, min(5, len(terms)) + 1):
                 for start in range(len(terms) - length + 1):
@@ -487,6 +523,7 @@ class CatalogSearch:
         constraints: dict,
         priorities: dict[str, str],
         exclusions: dict[str, set[str]],
+        feature_evidence: list[tuple[str, str]] | None = None,
         popularity_weight: float = 0.0,
     ) -> float | None:
         budget = constraints.get("budget")
@@ -499,6 +536,22 @@ class CatalogSearch:
         for attribute, weight in ATTRIBUTE_WEIGHTS.items():
             value = constraints.get(attribute)
             if value is None:
+                continue
+            if attribute == "feature" and feature_evidence:
+                clause_weight = weight / len(feature_evidence)
+                penalty = MISSING_ATTRIBUTE_PENALTIES[attribute] / len(feature_evidence)
+                for clause, source_kind in feature_evidence:
+                    coverage = self._attribute_coverage(product, attribute, clause)
+                    multiplier = (
+                        1.0
+                        if self._feature_clause_is_explicit(source_kind)
+                        or not self._is_common_feature_clause(clause)
+                        else SOFT_CONSTRAINT_MULTIPLIER
+                    )
+                    if coverage:
+                        score += clause_weight * multiplier * coverage
+                    else:
+                        score -= penalty * multiplier
                 continue
             coverage = self._attribute_coverage(product, attribute, value)
             multiplier = 1.0 if priorities.get(attribute) == "required" else SOFT_CONSTRAINT_MULTIPLIER
@@ -675,6 +728,7 @@ class CatalogSearch:
         exclude_ids: set[str] | None = None,
         constraint_priorities: dict[str, str] | None = None,
         excluded_constraints: dict[str, set[str]] | None = None,
+        feature_evidence: list[tuple[str, str]] | None = None,
         route: str = "browsing",
     ) -> SearchResult:
         """Return ranked IDs and statistics using current validated constraints.
@@ -742,6 +796,7 @@ class CatalogSearch:
                 constraints,
                 priorities,
                 exclusions,
+                feature_evidence,
                 popularity_weight,
             )
             if score is not None:
@@ -778,5 +833,14 @@ class CatalogSearch:
                 "active_exclusion_count": sum(
                     len(values) for values in exclusions.values()
                 ),
+                "feature_clause_priorities": {
+                    value: (
+                        "required"
+                        if self._feature_clause_is_explicit(source_kind)
+                        or not self._is_common_feature_clause(value)
+                        else "preferred"
+                    )
+                    for value, source_kind in (feature_evidence or [])
+                },
             },
         )

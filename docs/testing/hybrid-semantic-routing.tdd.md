@@ -35,8 +35,12 @@ All runs used `DEEPSEEK_ENABLED=0`, the frozen outer catalog, and the official 2
 | Local CrossEncoder, weight 0.05, top 20 | 1.000 | 0.623800 | 1.735 | 0.872440 | Score-neutral but materially slower; opt-in only |
 | Field-specific attribute text, no model | 1.000 | 0.623800 | 1.735 | 0.872440 | Retained; fixes false matches without score loss |
 | Specificity gate + protected rank 1, L6 weight 0.35/top 20 | 1.000 | 0.624593 | 1.735 | 0.872678 | Best model variant; remains opt-in due model packaging and latency |
+| Current `origin/main` merged, no model | 1.000 | 0.624008 | 1.735 | 0.872502 | Current branch default |
+| Current `origin/main` merged, guarded L6 weight 0.35/top 20 | 1.000 | 0.623704 | 1.735 | 0.872411 | Current combined public run regressed; keep disabled |
 
 The original stronger semantic configuration changed 83 sessions: 34 improved and 49 regressed. The final guarded configuration changed only eight sessions, improving five and regressing three, with no recall or MTTC loss. It made 68 local calls over 200 sessions and spent about 13.2 seconds in model inference. The model is therefore a validated optional path, not the default scoring dependency.
+
+The first seven rows above were measured from local `main` at `c306448`. Remote `main` later advanced to `f657a16`; the final two rows are fresh reruns after merging those collaborator changes into this branch. This makes the current decision stricter: the semantic adapter and its independent benchmark remain reproducible, but current submission scoring should use the deterministic default.
 
 Two tempting public-only variants were rejected. Profile-tag product bonuses reduced Technical Score to `0.858444`, because tags such as `fit` and `material` describe preference dimensions rather than values. Raising only the discovery popularity weight from `0.020` to `0.030` increased the public Technical Score to `0.874757`, but reduced the independent Agent benchmark from Hit@10 `0.5000`/MRR `0.173920` to `0.3333`/`0.120370`; the apparent public gain was not a relevance improvement.
 

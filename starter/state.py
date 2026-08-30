@@ -485,6 +485,13 @@ def _classify_value(value: str) -> str:
 
 def _revealed_updates(value: str, asked_attribute: str | None) -> dict[str, str]:
     if asked_attribute in CONSTRAINT_KEYS:
+        labeled = LABELED_VALUE_RE.fullmatch(value)
+        if labeled:
+            labeled_attribute = (
+                labeled.group(1).lower().replace("colour", "color").replace(" ", "_")
+            )
+            if labeled_attribute == asked_attribute:
+                value = _clean_value(labeled.group(2))
         return {asked_attribute: value}
 
     updates: dict[str, ConstraintValue] = {}
@@ -605,22 +612,28 @@ def _record_constraint(
     if replace:
         evidence.clear()
 
-    normalized = str(value).strip().casefold()
-    already_recorded_this_turn = any(
-        str(item.value).strip().casefold() == normalized
-        and item.source_turn == source_turn
-        for item in evidence
+    values = (
+        [_clean_value(clause) for clause in str(value).split(";") if _clean_value(clause)]
+        if attribute == "feature" and isinstance(value, str)
+        else [value]
     )
-    if not already_recorded_this_turn:
-        evidence.append(
-            ConstraintEvidence(
-                value=value,
-                source_turn=source_turn,
-                source_message=source_message,
-                source_kind=source_kind,
-            )
+    for item_value in values:
+        normalized = str(item_value).strip().casefold()
+        already_recorded_this_turn = any(
+            str(item.value).strip().casefold() == normalized
+            and item.source_turn == source_turn
+            for item in evidence
         )
-    state.excluded_constraints[attribute].discard(normalized)
+        if not already_recorded_this_turn:
+            evidence.append(
+                ConstraintEvidence(
+                    value=item_value,
+                    source_turn=source_turn,
+                    source_message=source_message,
+                    source_kind=source_kind,
+                )
+            )
+        state.excluded_constraints[attribute].discard(normalized)
     state.no_preference_attributes.discard(attribute)
     _refresh_constraint(state, attribute)
 
@@ -1031,7 +1044,9 @@ def update_state(state: SessionState, message: str) -> bool:
         ):
             continue
         source_kind = _source_kind(message, key, source_turn, is_override)
-        if _is_initial_preference(state, value, source_turn):
+        if source_kind == "direct" and _is_initial_preference(
+            state, value, source_turn
+        ):
             source_kind = "initial_preference"
         _record_constraint(
             state=state,

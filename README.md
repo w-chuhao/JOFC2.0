@@ -157,7 +157,7 @@ python -m evaluator.local_evaluator --catalog "$catalogPath" --dataset data/publ
 
 Remove `LOCAL_RERANKER_ALLOW_DOWNLOAD` after caching the model. Official scoring may disable network access, so a remotely named model is not a valid offline dependency unless its weights are supplied through an approved local-asset workflow.
 
-The original route-only experiment did not justify enabling this path: weight `0.35` over 50 broad Browsing candidates reduced MRR from `0.623800` to `0.585181`. Specificity gating plus required-match rank-1 protection changed the result to MRR `0.624593` and Technical Score `0.872678`, while an independent 18-query Agent check improved Hit@10 from `0.5000` to `0.5556` and MRR from `0.173920` to `0.218364`. The guarded run still made 68 local model calls and spent about 13.2 seconds in CPU inference, so the model remains opt-in rather than a required submission dependency.
+The original route-only experiment did not justify enabling this path: weight `0.35` over 50 broad Browsing candidates reduced MRR from `0.623800` to `0.585181`. On the original local-main base, specificity gating plus required-match rank-1 protection produced MRR `0.624593` and Technical Score `0.872678`, while an independent 18-query Agent check improved Hit@10 from `0.5000` to `0.5556` and MRR from `0.173920` to `0.218364`. After merging the newer `origin/main` retrieval changes, the current combined branch scored MRR `0.624008`/Technical Score `0.872502` deterministically and MRR `0.623704`/Technical Score `0.872411` with guarded L6. The current public run therefore favors keeping the model disabled. The earlier guarded run also made 68 local model calls and spent about 13.2 seconds in CPU inference, so the model remains opt-in research rather than a required submission dependency.
 
 An independent 18-case hard-negative benchmark is available in `tests/fixtures/semantic_ranking_cases.json`, with no target or candidate overlap against the public ground-truth ASINs. It compares the current L6 CrossEncoder, an L12 CrossEncoder, and a dense L12 MiniLM using `scripts/benchmark_semantic_models.py`. See `docs/testing/semantic-model-comparison.md` for methodology, results, limitations, and the reproduction command. The result supports gated L6 reranking for richly specified queries and dense MiniLM as a candidate route; it does not justify enabling either model for broad category-only public queries.
 
@@ -185,11 +185,14 @@ This check sends no catalog or evaluator data. It requires outbound HTTPS access
 
 ## Inspecting conversations and retrieval behaviour
 
-Trace a balanced 20-session sample of the public set (five sessions per scenario):
+Trace an 80-session public-set sample (30 buying, 30 browsing, 10 intent override,
+and 10 boundary sessions—the largest practical mix without repeating boundaries):
 
 ```powershell
 python -m scripts.trace_public_sessions
 ```
+
+Use `--per-scenario 10` for a balanced 40-session comparison trace.
 
 The full trace is saved to `outputs/public_prompt_trace.json`. To inspect specific public samples instead:
 
