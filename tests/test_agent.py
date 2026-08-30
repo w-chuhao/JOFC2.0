@@ -190,6 +190,20 @@ class AgentConversationTest(unittest.TestCase):
         self.assertEqual(priorities["material"], "required")
         self.assertEqual(priorities["color"], "required")
 
+    def test_first_turn_key_requirement_is_not_downgraded_to_a_preference(self) -> None:
+        self.agent.reset("session", {})
+        self.agent.respond(
+            "session",
+            "I'm looking for necklaces. A key requirement is: Material:alloy.",
+            1,
+            10,
+        )
+
+        state = self.agent.sessions["session"]
+        self.assertEqual(state.constraints["material"], "alloy")
+        self.assertEqual(state.constraint_priorities()["material"], "required")
+        self.assertEqual(state.constraint_evidence["material"][-1].source_kind, "disclosed")
+
     def test_override_replaces_old_category_and_color(self) -> None:
         self.agent.reset("session", {})
         self.agent.respond("session", "I want a red dress.", 1, 10)

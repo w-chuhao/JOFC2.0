@@ -1037,7 +1037,9 @@ def update_state(state: SessionState, message: str) -> bool:
         ):
             continue
         source_kind = _source_kind(message, key, source_turn, is_override)
-        if _is_initial_preference(state, value, source_turn):
+        if source_kind == "direct" and _is_initial_preference(
+            state, value, source_turn
+        ):
             source_kind = "initial_preference"
         _record_constraint(
             state=state,
