@@ -49,6 +49,26 @@ class TracePublicSessionsTest(unittest.TestCase):
             ],
         )
 
+    def test_select_samples_supports_uneven_scenario_counts(self) -> None:
+        samples = [
+            sample(f"{scenario}_{number}", scenario, "TARGET")
+            for scenario in ("buying", "browsing", "intent_override", "boundary")
+            for number in range(3)
+        ]
+
+        selected = select_samples(
+            samples,
+            {"buying": 3, "browsing": 2, "intent_override": 1, "boundary": 1},
+        )
+
+        self.assertEqual(
+            [item["sample_id"] for item in selected],
+            [
+                "buying_0", "buying_1", "buying_2", "browsing_0", "browsing_1",
+                "intent_override_0", "boundary_0",
+            ],
+        )
+
     def test_explicit_sample_ids_override_default_selection(self) -> None:
         samples = [sample("public_0001", "buying", "TARGET")]
 

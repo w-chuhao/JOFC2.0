@@ -97,6 +97,12 @@ class Agent:
             else self._shown_recommendation_ids(state)
         )
         priorities = state.constraint_priorities()
+        feature_evidence = [
+            (str(item.value), item.source_kind)
+            for item in state.constraint_evidence["feature"]
+        ]
+        if feature_evidence:
+            priorities["feature"] = self.retrieval.feature_priority(feature_evidence)
         route = (
             "buying"
             if any(
@@ -117,6 +123,7 @@ class Agent:
             exclude_ids=exclude_ids,
             constraint_priorities=priorities,
             excluded_constraints=state.excluded_constraints,
+            feature_evidence=feature_evidence,
             route=route,
         )
         state.last_search_diagnostics = result.diagnostics

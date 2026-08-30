@@ -220,6 +220,17 @@ class AgentConversationTest(unittest.TestCase):
         self.assertNotIn("zipper closure", state.search_text())
         self.assertEqual(state.constraints["feature"], "waterproof")
 
+    def test_feature_clarification_keeps_independent_clauses(self) -> None:
+        state = SessionState.create({})
+        state.last_asked_attribute = "feature"
+
+        update_state(state, "For that, what matters is: Imported; Zipper closure.")
+
+        self.assertEqual(
+            [item.value for item in state.constraint_evidence["feature"]],
+            ["imported", "zipper closure"],
+        )
+
     def test_negative_preference_is_not_reintroduced_as_positive(self) -> None:
         state = SessionState.create({})
 
