@@ -485,6 +485,13 @@ def _classify_value(value: str) -> str:
 
 def _revealed_updates(value: str, asked_attribute: str | None) -> dict[str, str]:
     if asked_attribute in CONSTRAINT_KEYS:
+        labeled = LABELED_VALUE_RE.fullmatch(value)
+        if labeled:
+            labeled_attribute = (
+                labeled.group(1).lower().replace("colour", "color").replace(" ", "_")
+            )
+            if labeled_attribute == asked_attribute:
+                value = _clean_value(labeled.group(2))
         return {asked_attribute: value}
 
     updates: dict[str, ConstraintValue] = {}

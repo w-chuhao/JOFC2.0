@@ -245,6 +245,15 @@ class AgentConversationTest(unittest.TestCase):
             ["imported", "zipper closure"],
         )
 
+    def test_labeled_reply_to_asked_attribute_stores_only_the_value(self) -> None:
+        state = SessionState.create({})
+        state.last_asked_attribute = "color"
+
+        update_state(state, "For that, what matters is: color: grey.")
+
+        self.assertEqual(state.constraints["color"], "grey")
+        self.assertEqual(state.constraint_evidence["color"][-1].value, "grey")
+
     def test_negative_preference_is_not_reintroduced_as_positive(self) -> None:
         state = SessionState.create({})
 
