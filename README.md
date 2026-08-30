@@ -143,11 +143,14 @@ This check sends no catalog or evaluator data. It requires outbound HTTPS access
 
 ## Inspecting conversations and retrieval behaviour
 
-Trace a balanced 20-session sample of the public set (five sessions per scenario):
+Trace an 80-session public-set sample (30 buying, 30 browsing, 10 intent override,
+and 10 boundary sessions—the largest practical mix without repeating boundaries):
 
 ```powershell
 python -m scripts.trace_public_sessions
 ```
+
+Use `--per-scenario 10` for a balanced 40-session comparison trace.
 
 The full trace is saved to `outputs/public_prompt_trace.json`. To inspect specific public samples instead:
 

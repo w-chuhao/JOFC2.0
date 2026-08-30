@@ -190,6 +190,20 @@ class AgentConversationTest(unittest.TestCase):
         self.assertEqual(priorities["material"], "required")
         self.assertEqual(priorities["color"], "required")
 
+    def test_first_turn_key_requirement_is_not_downgraded_to_a_preference(self) -> None:
+        self.agent.reset("session", {})
+        self.agent.respond(
+            "session",
+            "I'm looking for necklaces. A key requirement is: Material:alloy.",
+            1,
+            10,
+        )
+
+        state = self.agent.sessions["session"]
+        self.assertEqual(state.constraints["material"], "alloy")
+        self.assertEqual(state.constraint_priorities()["material"], "required")
+        self.assertEqual(state.constraint_evidence["material"][-1].source_kind, "disclosed")
+
     def test_override_replaces_old_category_and_color(self) -> None:
         self.agent.reset("session", {})
         self.agent.respond("session", "I want a red dress.", 1, 10)
@@ -219,6 +233,26 @@ class AgentConversationTest(unittest.TestCase):
 
         self.assertNotIn("zipper closure", state.search_text())
         self.assertEqual(state.constraints["feature"], "waterproof")
+
+    def test_feature_clarification_keeps_independent_clauses(self) -> None:
+        state = SessionState.create({})
+        state.last_asked_attribute = "feature"
+
+        update_state(state, "For that, what matters is: Imported; Zipper closure.")
+
+        self.assertEqual(
+            [item.value for item in state.constraint_evidence["feature"]],
+            ["imported", "zipper closure"],
+        )
+
+    def test_labeled_reply_to_asked_attribute_stores_only_the_value(self) -> None:
+        state = SessionState.create({})
+        state.last_asked_attribute = "color"
+
+        update_state(state, "For that, what matters is: color: grey.")
+
+        self.assertEqual(state.constraints["color"], "grey")
+        self.assertEqual(state.constraint_evidence["color"][-1].value, "grey")
 
     def test_negative_preference_is_not_reintroduced_as_positive(self) -> None:
         state = SessionState.create({})
@@ -315,6 +349,19 @@ class AgentConversationTest(unittest.TestCase):
         response = self.agent.respond("session", "I need blue shoes.", 2, 1)
 
         self.assertEqual(response["recommendations"][0]["parent_asin"], "SHOE_BLUE")
+
+    def test_override_can_reuse_a_previously_shown_result_without_new_constraints(self) -> None:
+        self.agent.reset("session", {})
+
+        first = self.agent.respond("session", "I want black shoes.", 1, 1)
+        second = self.agent.respond(
+            "session",
+            "Actually, I still want black shoes.",
+            2,
+            1,
+        )
+
+        self.assertEqual(first["recommendations"], second["recommendations"])
 
     def test_response_contract_and_zero_model_usage(self) -> None:
         self.agent.reset("session", {})

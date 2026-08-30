@@ -23,13 +23,18 @@ from starter.agent import Agent
 
 
 SCENARIO_ORDER = ("buying", "browsing", "intent_override", "boundary")
-DEFAULT_PER_SCENARIO = 5
+DEFAULT_SCENARIO_COUNTS = {
+    "buying": 30,
+    "browsing": 30,
+    "intent_override": 10,
+    "boundary": 10,
+}
 DEFAULT_OUTPUT = Path("outputs/public_prompt_trace.json")
 
 
 def select_samples(
     samples: list[dict[str, Any]],
-    per_scenario: int,
+    per_scenario: int | dict[str, int],
     sample_ids: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Choose explicit samples, or an even deterministic scenario split."""
@@ -45,13 +50,18 @@ def select_samples(
     for sample in samples:
         by_scenario[str(sample["scenario_type"])].append(sample)
     for scenario in SCENARIO_ORDER:
+        count = (
+            per_scenario[scenario]
+            if isinstance(per_scenario, dict)
+            else per_scenario
+        )
         choices = sorted(by_scenario[scenario], key=lambda sample: str(sample["sample_id"]))
-        if len(choices) < per_scenario:
+        if len(choices) < count:
             raise ValueError(
                 f"Dataset has only {len(choices)} {scenario} samples; "
-                f"need {per_scenario}."
+                f"need {count}."
             )
-        selected.extend(choices[:per_scenario])
+        selected.extend(choices[:count])
     return selected
 
 
@@ -208,17 +218,23 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Trace public evaluator conversations.")
     parser.add_argument("--catalog", default="data/catalog.jsonl")
     parser.add_argument("--dataset", default="data/public_set.jsonl")
-    parser.add_argument("--per-scenario", type=int, default=DEFAULT_PER_SCENARIO)
+    parser.add_argument(
+        "--per-scenario",
+        type=int,
+        help="Use an equal sample count for every scenario instead of the default 80-session mix.",
+    )
     parser.add_argument("--sample-ids", help="Comma-separated public sample IDs.")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     args = parser.parse_args()
-    if args.per_scenario <= 0:
+    if args.per_scenario is not None and args.per_scenario <= 0:
         parser.error("--per-scenario must be positive.")
 
     try:
         sample_ids = parse_sample_ids(args.sample_ids)
         selected_samples = select_samples(
-            load_jsonl(args.dataset), args.per_scenario, sample_ids
+            load_jsonl(args.dataset),
+            args.per_scenario if args.per_scenario is not None else DEFAULT_SCENARIO_COUNTS,
+            sample_ids,
         )
     except ValueError as error:
         parser.error(str(error))

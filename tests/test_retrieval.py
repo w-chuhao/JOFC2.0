@@ -360,5 +360,24 @@ class CatalogSearchTest(unittest.TestCase):
             0.0,
         )
 
+    def test_catalog_common_feature_clauses_are_preferred_unless_explicit(self) -> None:
+        self.search.catalog_size = 1_000
+        self.search.feature_term_document_frequency.update(
+            {"machine": 500, "wash": 500, "motion": 2, "comfort": 2}
+        )
+
+        self.assertEqual(
+            self.search.feature_priority([("Machine Wash", "clarification")]),
+            "preferred",
+        )
+        self.assertEqual(
+            self.search.feature_priority([("All Motion Comfort", "clarification")]),
+            "required",
+        )
+        self.assertEqual(
+            self.search.feature_priority([("Machine Wash", "required")]),
+            "required",
+        )
+
 if __name__ == "__main__":
     unittest.main()

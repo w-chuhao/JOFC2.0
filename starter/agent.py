@@ -11,6 +11,7 @@ from starter.conversation_llm import (
 )
 from starter.retrieval import CatalogSearch
 from starter.state import (
+    OVERRIDE_RE,
     SessionState,
     apply_llm_state_delta,
     choose_clarification,
@@ -74,6 +75,7 @@ class Agent:
 
         usage = TokenUsage()
         constraints_before = copy.deepcopy(state.constraints)
+        override_seen_before = state.override_seen
         handled = update_state(state, user_message)
 
         llm_delta: dict | None = None
@@ -91,12 +93,22 @@ class Agent:
             apply_llm_state_delta(state, user_message, llm_delta)
 
         constraints_changed = constraints_before != state.constraints
+        override_applied = (
+            OVERRIDE_RE.search(user_message) is not None
+            or (state.override_seen and not override_seen_before)
+        )
         exclude_ids = (
             set()
-            if constraints_changed
+            if constraints_changed or override_applied
             else self._shown_recommendation_ids(state)
         )
         priorities = state.constraint_priorities()
+        feature_evidence = [
+            (str(item.value), item.source_kind)
+            for item in state.constraint_evidence["feature"]
+        ]
+        if feature_evidence:
+            priorities["feature"] = self.retrieval.feature_priority(feature_evidence)
         route = (
             "buying"
             if any(
@@ -117,6 +129,7 @@ class Agent:
             exclude_ids=exclude_ids,
             constraint_priorities=priorities,
             excluded_constraints=state.excluded_constraints,
+            feature_evidence=feature_evidence,
             route=route,
         )
         state.last_search_diagnostics = result.diagnostics
