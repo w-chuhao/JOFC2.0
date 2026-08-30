@@ -83,15 +83,25 @@ class FakeConversationLLM:
         return self.clarification, TokenUsage(10, 3)
 
 
+class FakeSemanticReranker:
+    def __init__(self, ranking: list[str]) -> None:
+        self.ranking = ranking
+        self.calls = 0
+
+    def rank(self, query: str, documents: list[tuple[str, str]]) -> list[str]:
+        self.calls += 1
+        return list(self.ranking)
+
+
 class AgentConversationTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary_directory = tempfile.TemporaryDirectory()
-        catalog_path = Path(self.temporary_directory.name) / "catalog.jsonl"
-        catalog_path.write_text(
+        self.catalog_path = Path(self.temporary_directory.name) / "catalog.jsonl"
+        self.catalog_path.write_text(
             "".join(json.dumps(row) + "\n" for row in CATALOG_ROWS),
             encoding="utf-8",
         )
-        self.agent = Agent(catalog_path, enable_llm=False)
+        self.agent = Agent(self.catalog_path, enable_llm=False)
 
     def tearDown(self) -> None:
         self.agent.connection.close()
@@ -385,6 +395,27 @@ class AgentConversationTest(unittest.TestCase):
             response["usage"],
             {"prompt_tokens": 0, "completion_tokens": 0},
         )
+
+    def test_explicit_local_reranker_runs_for_specific_filtered_query(self) -> None:
+        reranker = FakeSemanticReranker(["DRESS_RED", "SHOE_BLUE", "SHOE_BLACK"])
+        semantic_agent = Agent(
+            self.catalog_path,
+            enable_llm=False,
+            semantic_reranker=reranker,
+            semantic_weight=10.0,
+        )
+        self.addCleanup(semantic_agent.connection.close)
+        semantic_agent.reset("semantic-session", {})
+
+        response = semantic_agent.respond(
+            "semantic-session",
+            "I need a red cotton formal dress with soft cotton fabric.",
+            1,
+            3,
+        )
+
+        self.assertEqual(response["recommendations"][0]["parent_asin"], "DRESS_RED")
+        self.assertEqual(reranker.calls, 1)
 
     def test_llm_interprets_when_deterministic_parser_finds_nothing(self) -> None:
         fake_llm = FakeConversationLLM(

@@ -1,0 +1,146 @@
+[
+  {
+    "case_id": "slim_rfid_money_clip",
+    "query": "I need a thin front-pocket wallet for a man, with RFID protection, quick card access and a removable metal money clip.",
+    "target_parent_asin": "B0954QMP4D",
+    "category": "Wallets",
+    "rationale": "Target uniquely combines the stated category and product attributes.",
+    "candidate_ids": ["B07SRY8STQ", "B088BD894S", "B07D53XHTF", "B092YVYPDF", "B0768CLQ4W", "B06Y5F3JD9", "B07B4RSLXL", "B07GBRLF61", "B01AKEUFY6", "B0954QMP4D"]
+  },
+  {
+    "case_id": "large_rfid_card_organizer",
+    "query": "Find a women's zip-around leather wallet that blocks RFID and can organize roughly three dozen cards.",
+    "target_parent_asin": "B085X84YJD",
+    "category": "Wallets",
+    "rationale": "Target uniquely combines the stated category and product attributes.",
+    "candidate_ids": ["B07GBRLF61", "B07SRY8STQ", "B0C6PWFSSR", "B07D53XHTF", "B01AKEUFY6", "B06Y5F3JD9", "B01KUXV3B6", "B01E61BKMA", "B07T9PRR8S", "B085X84YJD"]
+  },
+  {
+    "case_id": "packable_hooded_raincoat",
+    "query": "A lightweight women's waterproof hooded rain jacket that folds small for hiking and travel.",
+    "target_parent_asin": "B08242X27K",
+    "category": "Raincoats",
+    "rationale": "Target uniquely combines the stated category and product attributes.",
+    "candidate_ids": ["B07KJDDDBF", "B09BN7KM2L", "B0871R9JDP", "B071WPG92J", "B07X99HVSX", "B07PR8GZS5", "B08DV86BZF", "B07SV1J1KL", "B07PQB2MQQ", "B08242X27K"]
+  },
+  {
+    "case_id": "recycled_packable_puffer",
+    "query": "I want a lightweight women's puffer using recycled synthetic down that packs into its own pouch.",
+    "target_parent_asin": "B08R6J137C",
+    "category": "Down Jackets & Parkas",
+    "rationale": "Target uniquely combines the stated category and product attributes.",
+    "candidate_ids": ["B07XLNJXDW", "B07P5GYCWN", "B07Z9D8DXZ", "B07Z7JMYXT", "B07D8W778T", "B08D9MX2YY", "B0123YHODG", "B081BHJZWZ", "B01LYCJSER", "B08R6J137C"]
+  },
+  {
+    "case_id": "slip_on_safety_boot",
+    "query": "Men's waterproof slip-on work boots with puncture protection and an oil- and slip-resistant outsole.",
+    "target_parent_asin": "B08MCH6YCV",
+    "category": "Shoes",
+    "rationale": "Target uniquely combines the stated category and product attributes.",
+    "candidate_ids": ["B08QRJXHYK", "B08FCMVFH7", "B07P5LW9Y8", "B09MK9SDVY", "B0936Q575P", "B07W3XGD26", "B07QCK35Z7", "B083XKBNPN", "B08HCZ1Y35", "B08MCH6YCV"]
+  },
+  {
+    "case_id": "women_esd_steel_toe",
+    "query": "A low women's work shoe with asymmetrical steel toes and electrostatic-dissipative protection.",
+    "target_parent_asin": "B005BQN2SU",
+    "category": "Shoes",
+    "rationale": "Target uniquely combines the stated category and product attributes.",
+    "candidate_ids": ["B07W3XGD26", "B07P5LW9Y8", "B08599XQ4J", "B09MK9SDVY", "B07ZC4NHFX", "B0899FVXB1", "B07QCK35Z7", "B083XKBNPN", "B086R1271C", "B005BQN2SU"]
+  },
+  {
+    "case_id": "thermal_merino_ski_sock",
+    "query": "Knee-high merino wool socks for skiing that wick moisture, cushion the shin and support the arch.",
+    "target_parent_asin": "B0BGJ81PNQ",
+    "category": "Socks",
+    "rationale": "Target uniquely combines the stated category and product attributes.",
+    "candidate_ids": ["B0B7F884XV", "B07YJLPJ3R", "B0B79LH75D", "B083Z98ZYP", "B08HQLG93X", "B07ZQY8MWL", "B095WGCF79", "B093S1SYGH", "B0BNTYWGB1", "B0BGJ81PNQ"]
+  },
+  {
+    "case_id": "merino_no_show_lifetime",
+    "query": "Men's lightweight no-show merino athletic socks made in the USA with a lifetime guarantee.",
+    "target_parent_asin": "B003O696D4",
+    "category": "Athletic Socks",
+    "rationale": "Target uniquely combines the stated category and product attributes.",
+    "candidate_ids": ["B0B7F884XV", "B09WMRC8XQ", "B09LYK3J2Y", "B0BVXQJJFM", "B0928MYH3Q", "B081J57LP5", "B09DY2H9CX", "B07H3B9P5K", "B092V1T52B", "B003O696D4"]
+  },
+  {
+    "case_id": "hypoallergenic_earring_multipack",
+    "query": "A rose-gold hypoallergenic surgical-steel earring multipack with studs, hoops and several cubic-zirconia sizes.",
+    "target_parent_asin": "B08MX457SY",
+    "category": "Stud",
+    "rationale": "Target uniquely combines the stated category and product attributes.",
+    "candidate_ids": ["B093P7WKYN", "B08165NND1", "B0B2CZL82K", "B0B9MYRCH3", "B00L8PV00K", "B08MX457SY", "B07HZ44QPT", "B00R0GDX1A", "B07YTVQDDJ", "B0725T3BNC"]
+  },
+  {
+    "case_id": "three_size_gold_hoops",
+    "query": "Three pairs of small gold hoop earrings in different sizes, with sterling-silver posts and a secure flexible clasp.",
+    "target_parent_asin": "B09TZNPKQ3",
+    "category": "Hoop",
+    "rationale": "Target uniquely combines the stated category and product attributes.",
+    "candidate_ids": ["B0BBZDTSLM", "B09TZNPKQ3", "B07RXXMB3Z", "B08XB8C1LT", "B08HGQQMP1", "B07YY85FW3", "B08JPZ1RCP", "B08JLDRLFY", "B087Q8HFR5", "B0093UQT62"]
+  },
+  {
+    "case_id": "convertible_vegan_backpack",
+    "query": "A women's vegan-leather bag that converts between a backpack and shoulder handbag and includes a wristlet pouch.",
+    "target_parent_asin": "B0889FSL31",
+    "category": "Fashion Backpacks",
+    "rationale": "Target uniquely combines the stated category and product attributes.",
+    "candidate_ids": ["B08F4NGT6K", "B01I3PL3I6", "B09VNVGHD3", "B07YY3WZ5Z", "B091T8Y5B2", "B09PDMXFJ1", "B0719TKR9X", "B08CML9Y8T", "B092T3MW8B", "B0889FSL31"]
+  },
+  {
+    "case_id": "cotton_upf_travel_hat",
+    "query": "A women's 100% cotton travel sun hat with a wide foldable brim, inner drawstring and UPF 50 protection.",
+    "target_parent_asin": "B083G34TB8",
+    "category": "Sun Hats",
+    "rationale": "Target uniquely combines the stated category and product attributes.",
+    "candidate_ids": ["B004BI5B6A", "B089T3VCDL", "B07BPNJYD6", "B084NZHZG1", "B07Q2Y3QC1", "B08R3MDGW5", "B082VSHK2S", "B08B4KX5VY", "B095PD6VH5", "B083G34TB8"]
+  },
+  {
+    "case_id": "waterproof_oilskin_hat",
+    "query": "A breathable women's outdoor sun hat made from waterproof oilskin, with ventilation for days on the river.",
+    "target_parent_asin": "B0C6TT7L94",
+    "category": "Sun Hats",
+    "rationale": "Target uniquely combines the stated category and product attributes.",
+    "candidate_ids": ["B08576BP9W", "B07CHD2GJD", "B07BMTW3DP", "B06XXJCVCR", "B089T3VCDL", "B084NZHZG1", "B0BYCB96ZM", "B07BPNJYD6", "B094CX2ZK5", "B0C6TT7L94"]
+  },
+  {
+    "case_id": "copper_ankle_compression",
+    "query": "Low-cut copper compression socks for running, with 8-15 mmHg support, a cushioned sole and plantar-fasciitis arch support.",
+    "target_parent_asin": "B07KWVHFCY",
+    "category": "Athletic Socks",
+    "rationale": "Target uniquely combines the stated category and product attributes.",
+    "candidate_ids": ["B09WMRC8XQ", "B089Q1W56W", "B0B7F884XV", "B07QSHQMY5", "B083TBJG56", "B07CXMHG7H", "B082G2QLRN", "B09X124817", "B09LYK3J2Y", "B07KWVHFCY"]
+  },
+  {
+    "case_id": "magnetic_couple_bracelet",
+    "query": "A pair of adjustable long-distance relationship bracelets whose heart-shaped magnetic charms connect when brought together.",
+    "target_parent_asin": "B09DSHJKQN",
+    "category": "Link",
+    "rationale": "Target uniquely combines the stated category and product attributes.",
+    "candidate_ids": ["B06VYGMZT7", "B0B2CWBVSB", "B00ZWYPDRY", "B08F9R5RJG", "B00HFIENYY", "B009XVGTKC", "B0054QYVK0", "B07YNY57Z1", "B09NBDWCZM", "B09DSHJKQN"]
+  },
+  {
+    "case_id": "plus_size_nursing_bra",
+    "query": "A plus-size cotton wireless nursing bra with one-handed clips, full-coverage support and moisture-wicking fabric.",
+    "target_parent_asin": "B09TP9S88L",
+    "category": "Nursing & Maternity Bras",
+    "rationale": "Target uniquely combines the stated category and product attributes.",
+    "candidate_ids": ["B09TP9S88L", "B071G2K54K", "B003P2VHYI", "B009T1ZVDW", "B016BTXN84", "B0B561YWG8", "B083FNXCYV", "B07T63PZ34", "B09BBDM2PN", "B07DDQ2992"]
+  },
+  {
+    "case_id": "reversible_roller_buckle_belt",
+    "query": "A narrow reversible men's genuine-leather belt with a rotating removable roller buckle.",
+    "target_parent_asin": "B07XWDJ7PL",
+    "category": "Belts",
+    "rationale": "Target uniquely combines the stated category and product attributes.",
+    "candidate_ids": ["B07JBK5KBV", "B07RW633ZF", "B082TKGYN1", "B0B3HNSP7C", "B074D2V1J3", "B0C2TZXDNP", "B07Z28Y2V5", "B096BCG6F2", "B091DZK1XF", "B07XWDJ7PL"]
+  },
+  {
+    "case_id": "tummy_control_yoga_pockets",
+    "query": "High-waisted non-see-through women's yoga leggings with tummy control and pockets.",
+    "target_parent_asin": "B083TLNBGW",
+    "category": "Leggings",
+    "rationale": "Target uniquely combines the stated category and product attributes.",
+    "candidate_ids": ["B08LDRK4F6", "B07SSY8PKT", "B083TLNBGW", "B09JSQ86LH", "B0948ZWSCV", "B07V8C4KYC", "B08Q31WG15", "B09NSGPCQT", "B07ZR2VN97", "B08P9F9TFF"]
+  }
+]
