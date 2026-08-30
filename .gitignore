@@ -2,7 +2,7 @@ __pycache__/
 *.py[cod]
 .DS_Store
 .env
-results.json
+results*.json
 data/catalog.jsonl
 data/releases/
 # Organizer-only code, private evaluation data, manifests, and build reports.
@@ -16,6 +16,7 @@ docs/participant_release_checklist.md
 tests/test_5core_builder.py
 tests/test_organizer_pipeline.py
 *.log
+.tmp/
 
 # Local copy of the TechJam problem statement; keep it out of the submission repository.
 [[]Early Bird Access] TikTok TechJam 2026 Tracks & Problem Statements - Feishu Docs.pdf

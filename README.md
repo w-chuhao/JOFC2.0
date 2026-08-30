@@ -9,8 +9,10 @@ The challenge evaluator holds a hidden target product for each conversation. The
 The agent uses the Python standard library. On a new computer, obtain the frozen competition data first, then run this from the repository root in one PowerShell terminal:
 
 ```powershell
-# 1. Confirm the frozen competition data is present.
-Test-Path data\catalog.jsonl
+# 1. Point to your local copy of the frozen catalog and confirm the data exists.
+# This checkout uses ..\catalog.jsonl; collaborators should change only this line.
+$catalogPath = Resolve-Path "..\catalog.jsonl"
+Test-Path $catalogPath
 Test-Path data\public_set.jsonl
 
 # 2. Create and enter an isolated Python environment.
@@ -20,18 +22,19 @@ python -c "import sys; print(sys.executable)"
 
 # 3. Verify the agent and run the public evaluator.
 python -m unittest discover -s tests
-python -m evaluator.local_evaluator --output results.json
+python -m evaluator.local_evaluator --catalog "$catalogPath" --dataset data/public_set.jsonl --output results.json
 ```
 
-Both `Test-Path` commands must return `True`, and the interpreter path must contain `envs\\jofc\\python.exe`. No API key, model download, or Python package installation is required for the BM25 agent.
+Both `Test-Path` commands must return `True`, and the interpreter path must contain `envs\\jofc\\python.exe`. The catalog is deliberately not committed, so each machine must set `$catalogPath` to its own frozen catalog location; for example, use `data\catalog.jsonl` if that is where a collaborator stores it. No API key, model download, or Python package installation is required for the BM25 agent.
 
 ## What is in this repository
 
-- `data/catalog.jsonl` - frozen product catalog used by the agent.
+- machine-local catalog JSONL - frozen product catalog passed explicitly with `--catalog`; its path may differ between collaborators.
 - `data/public_set.jsonl` - 200 labelled public development sessions.
 - `starter/agent.py` - evaluator-facing `Agent` class and turn orchestration.
 - `starter/state.py` - session state, rule extraction, overrides, exclusions, validation, and deterministic clarification fallback.
 - `starter/retrieval.py` - SQLite FTS5/BM25 retrieval, constraint-aware reranking, aliases, candidate statistics, and result diversification.
+- `starter/local_reranker.py` - optional local CrossEncoder adapter for specificity-gated reranking of filtered candidates.
 - `starter/conversation_llm.py` - optional, guarded DeepSeek planner. It never selects product IDs.
 - `evaluator/` - frozen local evaluator. Do not modify it.
 - `scripts/` - evaluation history, public-conversation tracing, and an opt-in DeepSeek connection check.
@@ -42,8 +45,22 @@ Both `Test-Path` commands must return `True`, and the interpreter path must cont
 Run the frozen evaluator after each meaningful retrieval or state-management change:
 
 ```powershell
-python -m evaluator.local_evaluator --output results.json
+$catalogPath = Resolve-Path "..\catalog.jsonl"  # Replace with this machine's catalog location.
+$env:DEEPSEEK_ENABLED="0"
+python -m evaluator.local_evaluator --catalog "$catalogPath" --dataset data/public_set.jsonl --output results.json
 ```
+
+On macOS/Linux, the equivalent command is:
+
+```bash
+CATALOG_PATH="../catalog.jsonl" # Replace with this machine's catalog location.
+DEEPSEEK_ENABLED=0 python3 -m evaluator.local_evaluator \
+  --catalog "$CATALOG_PATH" \
+  --dataset data/public_set.jsonl \
+  --output results.json
+```
+
+Always pass `--catalog` explicitly; do not assume every collaborator keeps the frozen file at the same relative path.
 
 For a durable local history entry with the tester and note, use the wrapper:
 
@@ -84,6 +101,9 @@ multi-route BM25 candidates
 constraint-aware reranking and candidate-attribute statistics
         |
         v
+optional local semantic reranking of sufficiently specific filtered candidates
+        |
+        v
 Top-10 real catalog IDs + one validated clarification question
 ```
 
@@ -117,7 +137,29 @@ Intent-override language replaces stale constraints instead of accumulating cont
 
 `starter/retrieval.py` builds an in-memory SQLite FTS5 index over title, categories, features, details, store, and description. It combines field-aware BM25 routes, catalog aliases (for example, `handbag`/`purse`), and a constraint-aware reranker.
 
-Required constraints receive full scoring weight and clear excluded matches are removed; preferred constraints receive a smaller bonus. Exact multi-word feature clues receive a phrase bonus, while a modest rating/popularity tie-break decays during cross-turn exploration. All BM25 candidate routes use inclusive term matching, rather than a strict Buying-only AND route, because the latter reduced the public evaluator's composite score. Broader Browsing requests also avoid repeating products shown earlier in the same session. The retriever returns aggregate category/material/color/style/brand/use-case/feature/size/budget counts for diagnostics and the optional planner, never as product recommendations.
+Required constraints receive full scoring weight and clear excluded matches are removed; preferred constraints receive a smaller bonus. The Buying route applies required-attribute filtering only when at least the requested Top-K candidates survive, while Browsing retains the broader deterministic pool. Exact multi-word feature clues receive a phrase bonus, while a modest rating/popularity tie-break decays during cross-turn exploration. All BM25 candidate routes use inclusive term matching, rather than a strict Buying-only AND route, because the latter reduced the public evaluator's composite score. Broader Browsing requests also avoid repeating products shown earlier in the same session. The retriever returns aggregate category/material/color/style/brand/use-case/feature/size/budget counts for diagnostics and the optional planner, never as product recommendations.
+
+### Optional local semantic reranker
+
+The default and recommended evaluator path remains deterministic. An opt-in local CrossEncoder can reorder only the top deterministic candidates after at least two non-category constraints are known. It cannot add IDs or bypass filters, and it cannot displace a deterministic rank-1 product that already satisfies every required constraint. Loading or inference failures preserve the deterministic result.
+
+Install the optional dependencies and explicitly select a local or cached model:
+
+```powershell
+python -m pip install -r requirements-local-reranker.txt
+$env:LOCAL_RERANKER_MODEL="cross-encoder/ms-marco-MiniLM-L6-v2"
+$env:LOCAL_RERANKER_ALLOW_DOWNLOAD="1"  # first download only
+$env:LOCAL_RERANKER_WEIGHT="0.35"
+$env:LOCAL_RERANKER_CANDIDATES="20"
+$env:LOCAL_RERANKER_MIN_CONSTRAINTS="2"
+python -m evaluator.local_evaluator --catalog "$catalogPath" --dataset data/public_set.jsonl --output results.semantic.json
+```
+
+Remove `LOCAL_RERANKER_ALLOW_DOWNLOAD` after caching the model. Official scoring may disable network access, so a remotely named model is not a valid offline dependency unless its weights are supplied through an approved local-asset workflow.
+
+The original route-only experiment did not justify enabling this path: weight `0.35` over 50 broad Browsing candidates reduced MRR from `0.623800` to `0.585181`. Specificity gating plus required-match rank-1 protection changed the result to MRR `0.624593` and Technical Score `0.872678`, while an independent 18-query Agent check improved Hit@10 from `0.5000` to `0.5556` and MRR from `0.173920` to `0.218364`. The guarded run still made 68 local model calls and spent about 13.2 seconds in CPU inference, so the model remains opt-in rather than a required submission dependency.
+
+An independent 18-case hard-negative benchmark is available in `tests/fixtures/semantic_ranking_cases.json`, with no target or candidate overlap against the public ground-truth ASINs. It compares the current L6 CrossEncoder, an L12 CrossEncoder, and a dense L12 MiniLM using `scripts/benchmark_semantic_models.py`. See `docs/testing/semantic-model-comparison.md` for methodology, results, limitations, and the reproduction command. The result supports gated L6 reranking for richly specified queries and dense MiniLM as a candidate route; it does not justify enabling either model for broad category-only public queries.
 
 ### Optional DeepSeek planner
 

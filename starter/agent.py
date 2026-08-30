@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import os
 from pathlib import Path
 
 from starter import state
@@ -9,7 +10,8 @@ from starter.conversation_llm import (
     DeepSeekConversationLLM,
     TokenUsage,
 )
-from starter.retrieval import CatalogSearch
+from starter.local_reranker import LocalCrossEncoderReranker
+from starter.retrieval import CatalogSearch, SemanticReranker
 from starter.state import (
     SessionState,
     apply_llm_state_delta,
@@ -31,9 +33,47 @@ class Agent:
         *,
         conversation_llm: ConversationLLM | None = None,
         enable_llm: bool = True,
+        semantic_reranker: SemanticReranker | None = None,
+        enable_local_reranker: bool = True,
+        semantic_weight: float | None = None,
+        semantic_candidate_limit: int | None = None,
     ) -> None:
         self.catalog_path = Path(catalog_path)
-        self.retrieval = CatalogSearch(self.catalog_path)
+        project_root = Path(__file__).resolve().parents[1]
+        if semantic_reranker is None and enable_local_reranker:
+            try:
+                semantic_reranker = LocalCrossEncoderReranker.from_environment(
+                    project_root
+                )
+            except Exception:
+                semantic_reranker = None
+        if semantic_weight is None:
+            try:
+                semantic_weight = float(
+                    os.environ.get("LOCAL_RERANKER_WEIGHT", "0.35")
+                )
+            except ValueError:
+                semantic_weight = 0.35
+        if semantic_candidate_limit is None:
+            try:
+                semantic_candidate_limit = int(
+                    os.environ.get("LOCAL_RERANKER_CANDIDATES", "20")
+                )
+            except ValueError:
+                semantic_candidate_limit = 20
+        try:
+            semantic_min_specific_constraints = int(
+                os.environ.get("LOCAL_RERANKER_MIN_CONSTRAINTS", "2")
+            )
+        except ValueError:
+            semantic_min_specific_constraints = 2
+        self.retrieval = CatalogSearch(
+            self.catalog_path,
+            semantic_reranker=semantic_reranker,
+            semantic_weight=semantic_weight,
+            semantic_candidate_limit=semantic_candidate_limit,
+            semantic_min_specific_constraints=semantic_min_specific_constraints,
+        )
         self.connection = self.retrieval.connection
         self.sessions: dict[str, SessionState] = {}
         if not enable_llm:
@@ -41,7 +81,6 @@ class Agent:
         elif conversation_llm is not None:
             self.conversation_llm = conversation_llm
         else:
-            project_root = Path(__file__).resolve().parents[1]
             self.conversation_llm = DeepSeekConversationLLM.from_environment(
                 project_root
             )

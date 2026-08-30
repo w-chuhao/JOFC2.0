@@ -1,0 +1,3 @@
+# Optional experiment only; the deterministic evaluator path needs no packages.
+torch>=2.2,<3
+transformers>=4.53,<5

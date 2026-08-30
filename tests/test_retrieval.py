@@ -58,6 +58,18 @@ CATALOG_ROWS = [
         "price": 75.0,
     },
     {
+        "parent_asin": "SHOE_CANVAS_LEATHER_STORE",
+        "title": "Black canvas walking shoes",
+        "features": ["comfortable cushioned sole"],
+        "details": {"material": "canvas", "color": "black"},
+        "description": ["Everyday walking footwear"],
+        "categories": ["Clothing", "Shoes"],
+        "store": "Leather Goods Outlet",
+        "average_rating": 4.4,
+        "rating_number": 90,
+        "price": 75.0,
+    },
+    {
         "parent_asin": "FEATURE_PHRASE_EXACT",
         "title": "Everyday walking shoes",
         "features": ["All Motion Comfort technology", "Machine Wash"],
@@ -105,6 +117,18 @@ CATALOG_ROWS = [
         "rating_number": 5000,
         "price": 30.0,
     },
+    {
+        "parent_asin": "MMM_TIE_MIDDLE",
+        "title": "Green cotton casual shirt",
+        "features": ["soft"],
+        "details": {"material": "cotton", "color": "green"},
+        "description": ["Everyday shirt"],
+        "categories": ["Clothing", "Shirts"],
+        "store": "Tie Brand",
+        "average_rating": 4.0,
+        "rating_number": 100,
+        "price": 30.0,
+    },
     *[
         {
             "parent_asin": f"STEEL_HOOP_{number:02d}",
@@ -139,6 +163,19 @@ def constraints(**updates: object) -> dict[str, object]:
     return values
 
 
+class FakeSemanticReranker:
+    def __init__(self, ranking: list[str] | None = None, *, error: Exception | None = None):
+        self.ranking = ranking or []
+        self.error = error
+        self.calls: list[tuple[str, list[tuple[str, str]]]] = []
+
+    def rank(self, query: str, documents: list[tuple[str, str]]) -> list[str]:
+        self.calls.append((query, documents))
+        if self.error is not None:
+            raise self.error
+        return list(self.ranking)
+
+
 class CatalogSearchTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary_directory = tempfile.TemporaryDirectory()
@@ -152,6 +189,11 @@ class CatalogSearchTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.search.connection.close()
         self.temporary_directory.cleanup()
+
+    def test_semantic_defaults_match_guarded_evaluation_configuration(self) -> None:
+        self.assertEqual(self.search.semantic_weight, 0.35)
+        self.assertEqual(self.search.semantic_candidate_limit, 20)
+        self.assertEqual(self.search.semantic_min_specific_constraints, 2)
 
     def test_category_constraint_ranks_matching_product_above_other_category(self) -> None:
         results = self.search.search(
@@ -250,10 +292,10 @@ class CatalogSearchTest(unittest.TestCase):
 
     def test_popularity_prior_decays_with_cross_turn_exploration(self) -> None:
         self.assertGreater(
-            self.search._popularity_weight(0),
-            self.search._popularity_weight(40),
+            self.search._decayed_popularity_weight(0.02, 0),
+            self.search._decayed_popularity_weight(0.02, 40),
         )
-        self.assertEqual(self.search._popularity_weight(80), 0.0)
+        self.assertEqual(self.search._decayed_popularity_weight(0.02, 80), 0.0)
 
     def test_empty_query_returns_valid_catalog_ids(self) -> None:
         result = self.search.search("", constraints(), 10)
@@ -327,6 +369,156 @@ class CatalogSearchTest(unittest.TestCase):
         self.assertLessEqual(
             required.diagnostics["candidate_count"], preferred.diagnostics["candidate_count"]
         )
+
+    def test_buying_route_reports_guarded_required_constraint_filtering(self) -> None:
+        result = self.search.search(
+            query="black walking shoes",
+            constraints=constraints(category="shoes", material="leather"),
+            top_k=2,
+            constraint_priorities={"category": "required", "material": "required"},
+            route="buying",
+        )
+
+        self.assertEqual(result.diagnostics["strategy"], "filter_first")
+        self.assertEqual(result.diagnostics["popularity_weight"], 0.02)
+        self.assertEqual(result.diagnostics["required_filter_attributes"], ["material"])
+        self.assertNotIn("SHOE_CANVAS", result.recommendation_ids)
+
+    def test_browsing_route_reports_discovery_strategy(self) -> None:
+        result = self.search.search(
+            query="black walking shoes",
+            constraints=constraints(category="shoes", material="leather"),
+            top_k=2,
+            constraint_priorities={"category": "required", "material": "preferred"},
+            route="browsing",
+        )
+
+        self.assertEqual(result.diagnostics["strategy"], "discovery")
+        self.assertEqual(result.diagnostics["popularity_weight"], 0.02)
+        self.assertEqual(result.diagnostics["required_filter_attributes"], [])
+
+    def test_attribute_coverage_does_not_treat_store_name_as_material(self) -> None:
+        product = self.search.products["SHOE_CANVAS_LEATHER_STORE"]
+
+        coverage = self.search._attribute_coverage(product, "material", "leather")
+
+        self.assertEqual(coverage, 0.0)
+
+    def test_unknown_route_is_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "unsupported retrieval route"):
+            self.search.search(
+                query="black walking shoes",
+                constraints=constraints(category="shoes"),
+                top_k=2,
+                route="semantic-magic",
+            )
+
+    def test_semantic_reranker_skips_broad_category_only_browsing(self) -> None:
+        reranker = FakeSemanticReranker(["SHOE_CANVAS"])
+        semantic_search = CatalogSearch(
+            self.search.catalog_path,
+            semantic_reranker=reranker,
+            semantic_weight=10.0,
+        )
+        self.addCleanup(semantic_search.connection.close)
+
+        result = semantic_search.search(
+            query="shoes",
+            constraints=constraints(category="shoes"),
+            top_k=2,
+            route="browsing",
+        )
+
+        self.assertEqual(reranker.calls, [])
+        self.assertFalse(result.diagnostics["semantic_reranked"])
+        self.assertEqual(result.diagnostics["semantic_specific_constraint_count"], 0)
+
+    def test_semantic_reranker_can_reorder_only_specific_filtered_candidates(self) -> None:
+        reranker = FakeSemanticReranker(
+            [
+                "UNKNOWN",
+                "AAA_TIE_LOW",
+                "AAA_TIE_LOW",
+                "ZZZ_TIE_POPULAR",
+                "MMM_TIE_MIDDLE",
+            ]
+        )
+        semantic_search = CatalogSearch(
+            self.search.catalog_path,
+            semantic_reranker=reranker,
+            semantic_weight=10.0,
+        )
+        self.addCleanup(semantic_search.connection.close)
+
+        result = semantic_search.search(
+            query="green cotton casual shirt",
+            constraints=constraints(
+                category="shirts",
+                material="cotton",
+                color="green",
+            ),
+            top_k=3,
+            constraint_priorities={
+                "category": "required",
+                "material": "required",
+                "color": "required",
+            },
+            route="buying",
+        )
+
+        self.assertEqual(
+            result.recommendation_ids,
+            ["ZZZ_TIE_POPULAR", "AAA_TIE_LOW", "MMM_TIE_MIDDLE"],
+        )
+        self.assertNotIn("UNKNOWN", result.recommendation_ids)
+        self.assertEqual(len(result.recommendation_ids), len(set(result.recommendation_ids)))
+        self.assertTrue(result.diagnostics["semantic_reranked"])
+        self.assertEqual(result.diagnostics["semantic_candidate_count"], 3)
+        self.assertEqual(result.diagnostics["semantic_specific_constraint_count"], 2)
+        self.assertTrue(result.diagnostics["semantic_protected_first"])
+
+    def test_semantic_reranker_is_skipped_for_underspecified_buying_route(self) -> None:
+        reranker = FakeSemanticReranker(["SHOE_CANVAS_LEATHER_STORE"])
+        semantic_search = CatalogSearch(
+            self.search.catalog_path,
+            semantic_reranker=reranker,
+        )
+        self.addCleanup(semantic_search.connection.close)
+
+        result = semantic_search.search(
+            query="black leather walking shoes",
+            constraints=constraints(category="shoes", material="leather"),
+            top_k=2,
+            constraint_priorities={"category": "required", "material": "required"},
+            route="buying",
+        )
+
+        self.assertEqual(reranker.calls, [])
+        self.assertFalse(result.diagnostics["semantic_reranked"])
+
+    def test_semantic_reranker_failure_preserves_deterministic_results(self) -> None:
+        baseline = self.search.search(
+            query="green cotton casual shirt",
+            constraints=constraints(category="shirts"),
+            top_k=2,
+            route="browsing",
+        )
+        reranker = FakeSemanticReranker(error=RuntimeError("model unavailable"))
+        semantic_search = CatalogSearch(
+            self.search.catalog_path,
+            semantic_reranker=reranker,
+        )
+        self.addCleanup(semantic_search.connection.close)
+
+        result = semantic_search.search(
+            query="green cotton casual shirt",
+            constraints=constraints(category="shirts"),
+            top_k=2,
+            route="browsing",
+        )
+
+        self.assertEqual(result.recommendation_ids, baseline.recommendation_ids)
+        self.assertFalse(result.diagnostics["semantic_reranked"])
 
     def test_exact_feature_phrase_bonus_beats_non_contiguous_token_overlap(self) -> None:
         required_constraints = constraints(feature="All Motion Comfort")
