@@ -341,6 +341,19 @@ class AgentConversationTest(unittest.TestCase):
 
         self.assertEqual(response["recommendations"][0]["parent_asin"], "SHOE_BLUE")
 
+    def test_override_can_reuse_a_previously_shown_result_without_new_constraints(self) -> None:
+        self.agent.reset("session", {})
+
+        first = self.agent.respond("session", "I want black shoes.", 1, 1)
+        second = self.agent.respond(
+            "session",
+            "Actually, I still want black shoes.",
+            2,
+            1,
+        )
+
+        self.assertEqual(first["recommendations"], second["recommendations"])
+
     def test_response_contract_and_zero_model_usage(self) -> None:
         self.agent.reset("session", {})
 
