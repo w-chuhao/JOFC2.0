@@ -87,16 +87,22 @@ class LocalCrossEncoderReranker:
 
         return score
 
-    def rank(self, query: str, documents: list[tuple[str, str]]) -> list[str]:
+    def score(self, query: str, documents: list[tuple[str, str]]) -> list[float]:
+        """Return one raw cross-encoder logit per input document."""
         if not documents:
             return []
-        scores = self._scorer(query, [text for _, text in documents])
+        texts = [text for _, text in documents]
+        scores = [float(score) for score in self._scorer(query, texts)]
         if len(scores) != len(documents):
             raise ValueError("local reranker must return one score per document")
-        if any(not math.isfinite(float(score)) for score in scores):
+        if any(not math.isfinite(score) for score in scores):
             raise ValueError("local reranker scores must be finite")
+        return scores
+
+    def rank(self, query: str, documents: list[tuple[str, str]]) -> list[str]:
+        scores = self.score(query, documents)
         ranked = sorted(
             zip(documents, scores, strict=True),
-            key=lambda item: -float(item[1]),
+            key=lambda item: -item[1],
         )
         return [parent_asin for ((parent_asin, _), _) in ranked]

@@ -38,6 +38,8 @@ class Agent:
         enable_local_reranker: bool = True,
         semantic_weight: float | None = None,
         semantic_candidate_limit: int | None = None,
+        semantic_min_score_gap: float | None = None,
+        enable_ranking_diagnostics: bool = False,
     ) -> None:
         self.catalog_path = Path(catalog_path)
         project_root = Path(__file__).resolve().parents[1]
@@ -68,12 +70,21 @@ class Agent:
             )
         except ValueError:
             semantic_min_specific_constraints = 2
+        if semantic_min_score_gap is None:
+            try:
+                semantic_min_score_gap = float(
+                    os.environ.get("LOCAL_RERANKER_MIN_SCORE_GAP", "0.3")
+                )
+            except ValueError:
+                semantic_min_score_gap = 0.3
         self.retrieval = CatalogSearch(
             self.catalog_path,
             semantic_reranker=semantic_reranker,
             semantic_weight=semantic_weight,
             semantic_candidate_limit=semantic_candidate_limit,
             semantic_min_specific_constraints=semantic_min_specific_constraints,
+            semantic_min_score_gap=semantic_min_score_gap,
+            enable_ranking_diagnostics=enable_ranking_diagnostics,
         )
         self.connection = self.retrieval.connection
         self.sessions: dict[str, SessionState] = {}
@@ -161,8 +172,10 @@ class Agent:
         if state.category_context and retrieval_constraints.get("category"):
             retrieval_constraints["category"] = state.category_context
 
+        retrieval_query = state.retrieval_query_for(user_message)
         result = self.retrieval.search(
-            query=state.retrieval_query_for(user_message),
+            query=retrieval_query,
+            semantic_query=state.semantic_query(),
             constraints=retrieval_constraints,
             top_k=top_k,
             exclude_ids=exclude_ids,
@@ -170,6 +183,7 @@ class Agent:
             excluded_constraints=state.excluded_constraints,
             feature_evidence=feature_evidence,
             route=route,
+            semantic_rerank_allowed=not state.override_seen,
         )
         state.last_search_diagnostics = result.diagnostics
         recommendations = [

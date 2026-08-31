@@ -272,6 +272,20 @@ class AgentConversationTest(unittest.TestCase):
         self.assertIn("hiking shoes", query)
         self.assertNotIn("show me more", query.casefold())
 
+    def test_semantic_query_uses_only_labelled_validated_state(self) -> None:
+        state = SessionState.create({})
+        state.category_context = "hiking shoes"
+        state.constraints.update(
+            {"category": "shoes", "material": "leather", "color": "black"}
+        )
+
+        query = state.semantic_query()
+
+        self.assertEqual(
+            query,
+            "category: hiking shoes; category: shoes; material: leather; color: black",
+        )
+
     def test_candidate_statistics_select_discriminating_attribute(self) -> None:
         state = SessionState.create({})
         state.constraints["category"] = "shoes"
@@ -407,6 +421,35 @@ class AgentConversationTest(unittest.TestCase):
 
         self.assertEqual(response["recommendations"][0]["parent_asin"], "DRESS_RED")
         self.assertEqual(reranker.calls, 1)
+
+    def test_override_disables_semantic_reranking_for_the_rest_of_the_session(self) -> None:
+        reranker = FakeSemanticReranker(["DRESS_RED", "SHOE_BLUE", "SHOE_BLACK"])
+        semantic_agent = Agent(
+            self.catalog_path,
+            enable_llm=False,
+            semantic_reranker=reranker,
+            semantic_weight=10.0,
+        )
+        self.addCleanup(semantic_agent.connection.close)
+        semantic_agent.reset("semantic-override", {})
+
+        semantic_agent.respond(
+            "semantic-override",
+            "I need a red cotton formal dress with soft cotton fabric.",
+            1,
+            3,
+        )
+        semantic_agent.respond(
+            "semantic-override",
+            "Actually, I need black leather walking shoes.",
+            2,
+            3,
+        )
+
+        self.assertEqual(reranker.calls, 1)
+        diagnostics = semantic_agent.sessions["semantic-override"].last_search_diagnostics
+        self.assertFalse(diagnostics["semantic_reranked"])
+        self.assertEqual(diagnostics["semantic_gate_reason"], "disabled_by_caller")
 
     def test_llm_interprets_when_deterministic_parser_finds_nothing(self) -> None:
         fake_llm = FakeConversationLLM(

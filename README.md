@@ -70,6 +70,18 @@ python scripts/run_evaluation.py --tested-by "Your Name" --note "Describe the ch
 
 It writes the latest evaluator result to `results.json` and appends the compact metric summary to `outputs/evaluation_history.json`.
 
+To compare the Phase 2E confidence gate at three conservative values in one
+command, while preserving a separate result JSON for each run:
+
+```powershell
+$catalogPath = Resolve-Path "..\catalog.jsonl"
+python scripts/sweep_semantic_score_gap.py --catalog "$catalogPath" --tested-by "Your Name"
+```
+
+The default sweep tests score gaps `0.2`, `0.25`, `0.3`, `0.35`, and `0.4`; every result is
+appended to `outputs/evaluation_history.json` and saved under
+`outputs/semantic_score_gap_sweep/`.
+
 The public set is for development only. The final competition evaluation uses 800 separate private sessions. Never read public target labels from agent code, hard-code ASINs, or modify `evaluator/`, `data/public_set.jsonl`, or `data/catalog.jsonl`.
 
 ### Metrics
@@ -151,13 +163,36 @@ $env:LOCAL_RERANKER_MODEL="cross-encoder/ms-marco-MiniLM-L6-v2"
 $env:LOCAL_RERANKER_ALLOW_DOWNLOAD="1"  # first download only
 $env:LOCAL_RERANKER_WEIGHT="0.35"
 $env:LOCAL_RERANKER_CANDIDATES="20"
-$env:LOCAL_RERANKER_MIN_CONSTRAINTS="2"
+$env:LOCAL_RERANKER_MIN_CONSTRAINTS="2"  # weighted specificity threshold
+$env:LOCAL_RERANKER_MIN_SCORE_GAP="0.3"  # selected public-development setting
 python -m evaluator.local_evaluator --catalog "$catalogPath" --dataset data/public_set.jsonl --output results.semantic.json
 ```
 
 Remove `LOCAL_RERANKER_ALLOW_DOWNLOAD` after caching the model. Official scoring may disable network access, so a remotely named model is not a valid offline dependency unless its weights are supplied through an approved local-asset workflow.
 
 The original route-only experiment did not justify enabling this path: weight `0.35` over 50 broad Browsing candidates reduced MRR from `0.623800` to `0.585181`. On the original local-main base, specificity gating plus required-match rank-1 protection produced MRR `0.624593` and Technical Score `0.872678`, while an independent 18-query Agent check improved Hit@10 from `0.5000` to `0.5556` and MRR from `0.173920` to `0.218364`. After merging the newer `origin/main` retrieval changes, the current combined branch scored MRR `0.624008`/Technical Score `0.872502` deterministically and MRR `0.623704`/Technical Score `0.872411` with guarded L6. The current public run therefore favors keeping the model disabled. The earlier guarded run also made 68 local model calls and spent about 13.2 seconds in CPU inference, so the model remains opt-in research rather than a required submission dependency.
+
+Once a shopper changes their intent, semantic reranking is disabled for the rest
+of that session. The deterministic constrained ranker remains active, avoiding
+semantic promotion based on stale pre-override phrasing.
+
+For specific non-override requests, the semantic reranker also preserves a
+leading deterministic head of up to two candidates when each fully satisfies
+the required constraints. Only the remaining candidates are eligible for
+semantic promotion.
+
+The local CrossEncoder's raw scores are used only within a query: after the
+protected head, its best movable candidate must exceed the deterministic movable
+leader by `LOCAL_RERANKER_MIN_SCORE_GAP` before semantic fusion can change the
+order. The code fallback and selected public-development setting are both
+`0.3`. In the recorded score-gap sweep, `0.3` produced MRR `0.628246` and
+Technical Score `0.873774`, slightly above Phase 2C (`0.628121` / `0.873736`).
+Gap `0.4` tied this result, so `0.3` is retained as the lower selected value.
+The reranker receives a separate labelled query built only from validated session
+state; BM25 retrieval continues to use the richer current-turn query.
+Its specificity gate weights required constraints as `1.0` and preferred
+constraints as `0.5`; the default threshold of `2` therefore requires either
+two required details or a richer set of preferred details.
 
 An independent 18-case hard-negative benchmark is available in `tests/fixtures/semantic_ranking_cases.json`, with no target or candidate overlap against the public ground-truth ASINs. It compares the current L6 CrossEncoder, an L12 CrossEncoder, and a dense L12 MiniLM using `scripts/benchmark_semantic_models.py`. See `docs/testing/semantic-model-comparison.md` for methodology, results, limitations, and the reproduction command. The result supports gated L6 reranking for richly specified queries and dense MiniLM as a candidate route; it does not justify enabling either model for broad category-only public queries.
 
@@ -201,6 +236,15 @@ python -m scripts.trace_public_sessions --sample-ids public_0001,public_0014
 ```
 
 The trace includes evaluator prompts, responses, state constraints, priorities, exclusions, and retrieval diagnostics. Use it to investigate failure patterns; do not use hidden target labels in runtime agent logic.
+
+Trace runs also enable an offline-only ranking explanation for each returned
+candidate. `retrieval.ranking_candidates` records route ranks, raw BM25 scores,
+RRF contributions, constraint contributions, phrase bonuses, popularity,
+rating, deterministic-to-final rank movement, and—when the configured reranker
+exposes them—raw semantic scores and semantic ranks. `ranking_comparison` compares the
+public target with the rank-one result when the target is in the returned Top
+10. Normal evaluator runs leave this explanation disabled, and target IDs are
+never passed into the agent or retriever.
 
 ## Development rules
 

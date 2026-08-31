@@ -47,457 +47,6 @@
       }
     },
     {
-      "test_number": 2,
-      "tested_by": "w-chuhao",
-      "tested_at": "2026-08-28T15:11:56.218797+08:00",
-      "note": "New exclusion rule",
-      "metrics": {
-        "sample_count": 200,
-        "hit_rate_at_10": 0.995,
-        "mrr": 0.600369,
-        "mttc": 3.18,
-        "efficiency": 0.782,
-        "recommended_technical_score": 0.834011,
-        "reported_token_usage": {
-          "prompt_tokens": 0,
-          "completion_tokens": 0,
-          "total_tokens": 0
-        },
-        "scenario_metrics": {
-          "boundary": {
-            "sample_count": 10,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.752778,
-            "mttc": 3.9
-          },
-          "browsing": {
-            "sample_count": 80,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.590179,
-            "mttc": 2.9625
-          },
-          "buying": {
-            "sample_count": 80,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.552951,
-            "mttc": 2.7875
-          },
-          "intent_override": {
-            "sample_count": 30,
-            "hit_rate_at_10": 0.966667,
-            "mrr": 0.703188,
-            "mttc": 4.566667
-          }
-        }
-      }
-    },
-    {
-      "Comment": "This test produced worse results, I removed the changes already",
-      "test_number": 3,
-      "tested_by": "w-chuhao",
-      "tested_at": "2026-08-29T14:39:07.917322+08:00",
-      "note": "Local-only check",
-      "metrics": {
-        "sample_count": 200,
-        "hit_rate_at_10": 0.98,
-        "mrr": 0.600087,
-        "mttc": 4.025,
-        "efficiency": 0.6975,
-        "recommended_technical_score": 0.809526,
-        "reported_token_usage": {
-          "prompt_tokens": 0,
-          "completion_tokens": 0,
-          "total_tokens": 0
-        },
-        "scenario_metrics": {
-          "boundary": {
-            "sample_count": 10,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.677619,
-            "mttc": 5.0
-          },
-          "browsing": {
-            "sample_count": 80,
-            "hit_rate_at_10": 0.9875,
-            "mrr": 0.594013,
-            "mttc": 4.0375
-          },
-          "buying": {
-            "sample_count": 80,
-            "hit_rate_at_10": 0.975,
-            "mrr": 0.530967,
-            "mttc": 3.5125
-          },
-          "intent_override": {
-            "sample_count": 30,
-            "hit_rate_at_10": 0.966667,
-            "mrr": 0.774762,
-            "mttc": 5.033333
-          }
-        }
-      }
-    },
-    {
-      "test_number": 4,
-      "tested_by": "w-chuhao",
-      "tested_at": "2026-08-29T16:41:27.701450+08:00",
-      "note": "Double confirm results",
-      "metrics": {
-        "sample_count": 200,
-        "hit_rate_at_10": 0.995,
-        "mrr": 0.600369,
-        "mttc": 3.18,
-        "efficiency": 0.782,
-        "recommended_technical_score": 0.834011,
-        "reported_token_usage": {
-          "prompt_tokens": 0,
-          "completion_tokens": 0,
-          "total_tokens": 0
-        },
-        "scenario_metrics": {
-          "boundary": {
-            "sample_count": 10,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.752778,
-            "mttc": 3.9
-          },
-          "browsing": {
-            "sample_count": 80,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.590179,
-            "mttc": 2.9625
-          },
-          "buying": {
-            "sample_count": 80,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.552951,
-            "mttc": 2.7875
-          },
-          "intent_override": {
-            "sample_count": 30,
-            "hit_rate_at_10": 0.966667,
-            "mrr": 0.703188,
-            "mttc": 4.566667
-          }
-        }
-      }
-    },
-    {
-      "test_number": 5,
-      "tested_by": "w-chuhao",
-      "tested_at": "2026-08-29T16:58:26.572890+08:00",
-      "note": "Multi-word-features",
-      "metrics": {
-        "sample_count": 200,
-        "hit_rate_at_10": 0.995,
-        "mrr": 0.596988,
-        "mttc": 3.095,
-        "efficiency": 0.7905,
-        "recommended_technical_score": 0.834696,
-        "reported_token_usage": {
-          "prompt_tokens": 0,
-          "completion_tokens": 0,
-          "total_tokens": 0
-        },
-        "scenario_metrics": {
-          "boundary": {
-            "sample_count": 10,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.823611,
-            "mttc": 3.6
-          },
-          "browsing": {
-            "sample_count": 80,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.604191,
-            "mttc": 2.9125
-          },
-          "buying": {
-            "sample_count": 80,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.522743,
-            "mttc": 2.675
-          },
-          "intent_override": {
-            "sample_count": 30,
-            "hit_rate_at_10": 0.966667,
-            "mrr": 0.700225,
-            "mttc": 4.533333
-          }
-        }
-      }
-    },
-    {
-      "test_number": 6,
-      "tested_by": "w-chuhao",
-      "tested_at": "2026-08-30T20:39:37.360763+08:00",
-      "note": "check score",
-      "metrics": {
-        "sample_count": 200,
-        "hit_rate_at_10": 1.0,
-        "mrr": 0.6238,
-        "mttc": 1.735,
-        "efficiency": 0.9265,
-        "recommended_technical_score": 0.87244,
-        "reported_token_usage": {
-          "prompt_tokens": 0,
-          "completion_tokens": 0,
-          "total_tokens": 0
-        },
-        "scenario_metrics": {
-          "boundary": {
-            "sample_count": 10,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.79,
-            "mttc": 2.3
-          },
-          "browsing": {
-            "sample_count": 80,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.526627,
-            "mttc": 1.3625
-          },
-          "buying": {
-            "sample_count": 80,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.63808,
-            "mttc": 1.325
-          },
-          "intent_override": {
-            "sample_count": 30,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.789444,
-            "mttc": 3.633333
-          }
-        }
-      }
-    },
-    {
-      "test_number": 7,
-      "tested_by": "w-chuhao",
-      "tested_at": "2026-08-30T20:51:03.079415+08:00",
-      "note": "tik tok inspired",
-      "metrics": {
-        "sample_count": 200,
-        "hit_rate_at_10": 0.96,
-        "mrr": 0.563427,
-        "mttc": 2.105,
-        "efficiency": 0.8895,
-        "recommended_technical_score": 0.826928,
-        "reported_token_usage": {
-          "prompt_tokens": 0,
-          "completion_tokens": 0,
-          "total_tokens": 0
-        },
-        "scenario_metrics": {
-          "boundary": {
-            "sample_count": 10,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.681111,
-            "mttc": 2.3
-          },
-          "browsing": {
-            "sample_count": 80,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.505818,
-            "mttc": 1.55
-          },
-          "buying": {
-            "sample_count": 80,
-            "hit_rate_at_10": 0.9875,
-            "mrr": 0.619454,
-            "mttc": 1.425
-          },
-          "intent_override": {
-            "sample_count": 30,
-            "hit_rate_at_10": 0.766667,
-            "mrr": 0.528413,
-            "mttc": 5.333333
-          }
-        }
-      }
-    },
-    {
-      "test_number": 8,
-      "tested_by": "w-chuhao",
-      "tested_at": "2026-08-30T21:04:40.643834+08:00",
-      "note": "check score",
-      "metrics": {
-        "sample_count": 200,
-        "hit_rate_at_10": 1.0,
-        "mrr": 0.6238,
-        "mttc": 1.735,
-        "efficiency": 0.9265,
-        "recommended_technical_score": 0.87244,
-        "reported_token_usage": {
-          "prompt_tokens": 0,
-          "completion_tokens": 0,
-          "total_tokens": 0
-        },
-        "scenario_metrics": {
-          "boundary": {
-            "sample_count": 10,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.79,
-            "mttc": 2.3
-          },
-          "browsing": {
-            "sample_count": 80,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.526627,
-            "mttc": 1.3625
-          },
-          "buying": {
-            "sample_count": 80,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.63808,
-            "mttc": 1.325
-          },
-          "intent_override": {
-            "sample_count": 30,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.789444,
-            "mttc": 3.633333
-          }
-        }
-      }
-    },
-    {
-      "test_number": 9,
-      "tested_by": "w-chuhao",
-      "tested_at": "2026-08-30T21:17:00.284696+08:00",
-      "note": "trial mrr improvement",
-      "metrics": {
-        "sample_count": 200,
-        "hit_rate_at_10": 1.0,
-        "mrr": 0.628216,
-        "mttc": 1.775,
-        "efficiency": 0.9225,
-        "recommended_technical_score": 0.872965,
-        "reported_token_usage": {
-          "prompt_tokens": 0,
-          "completion_tokens": 0,
-          "total_tokens": 0
-        },
-        "scenario_metrics": {
-          "boundary": {
-            "sample_count": 10,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.79,
-            "mttc": 2.3
-          },
-          "browsing": {
-            "sample_count": 80,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.517252,
-            "mttc": 1.3625
-          },
-          "buying": {
-            "sample_count": 80,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.642247,
-            "mttc": 1.3375
-          },
-          "intent_override": {
-            "sample_count": 30,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.832778,
-            "mttc": 3.866667
-          }
-        }
-      }
-    },
-    {
-      "test_number": 10,
-      "tested_by": "w-chuhao",
-      "tested_at": "2026-08-30T21:47:30.157011+08:00",
-      "note": "Test 1",
-      "metrics": {
-        "sample_count": 200,
-        "hit_rate_at_10": 1.0,
-        "mrr": 0.628216,
-        "mttc": 1.775,
-        "efficiency": 0.9225,
-        "recommended_technical_score": 0.872965,
-        "reported_token_usage": {
-          "prompt_tokens": 0,
-          "completion_tokens": 0,
-          "total_tokens": 0
-        },
-        "scenario_metrics": {
-          "boundary": {
-            "sample_count": 10,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.79,
-            "mttc": 2.3
-          },
-          "browsing": {
-            "sample_count": 80,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.517252,
-            "mttc": 1.3625
-          },
-          "buying": {
-            "sample_count": 80,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.642247,
-            "mttc": 1.3375
-          },
-          "intent_override": {
-            "sample_count": 30,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.832778,
-            "mttc": 3.866667
-          }
-        }
-      }
-    },
-    {
-      "test_number": 11,
-      "tested_by": "w-chuhao",
-      "tested_at": "2026-08-30T21:50:21.301949+08:00",
-      "note": "Test 1",
-      "metrics": {
-        "sample_count": 200,
-        "hit_rate_at_10": 1.0,
-        "mrr": 0.628216,
-        "mttc": 1.775,
-        "efficiency": 0.9225,
-        "recommended_technical_score": 0.872965,
-        "reported_token_usage": {
-          "prompt_tokens": 0,
-          "completion_tokens": 0,
-          "total_tokens": 0
-        },
-        "scenario_metrics": {
-          "boundary": {
-            "sample_count": 10,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.79,
-            "mttc": 2.3
-          },
-          "browsing": {
-            "sample_count": 80,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.517252,
-            "mttc": 1.3625
-          },
-          "buying": {
-            "sample_count": 80,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.642247,
-            "mttc": 1.3375
-          },
-          "intent_override": {
-            "sample_count": 30,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.832778,
-            "mttc": 3.866667
-          }
-        }
-      }
-    },
-    {
       "test_number": 12,
       "tested_by": "w-chuhao",
       "tested_at": "2026-08-30T21:54:44.751331+08:00",
@@ -666,6 +215,456 @@
             "sample_count": 80,
             "hit_rate_at_10": 1.0,
             "mrr": 0.63756,
+            "mttc": 1.325
+          },
+          "intent_override": {
+            "sample_count": 30,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.832778,
+            "mttc": 3.633333
+          }
+        }
+      }
+    },
+    {
+      "test_number": 16,
+      "tested_by": "w-chuhao",
+      "tested_at": "2026-08-31T10:57:59.070124+08:00",
+      "note": "Phase 1 test",
+      "metrics": {
+        "sample_count": 200,
+        "hit_rate_at_10": 1.0,
+        "mrr": 0.626341,
+        "mttc": 1.735,
+        "efficiency": 0.9265,
+        "recommended_technical_score": 0.873202,
+        "reported_token_usage": {
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "total_tokens": 0
+        },
+        "scenario_metrics": {
+          "boundary": {
+            "sample_count": 10,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.79,
+            "mttc": 2.3
+          },
+          "browsing": {
+            "sample_count": 80,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.517252,
+            "mttc": 1.3625
+          },
+          "buying": {
+            "sample_count": 80,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.63756,
+            "mttc": 1.325
+          },
+          "intent_override": {
+            "sample_count": 30,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.832778,
+            "mttc": 3.633333
+          }
+        }
+      }
+    },
+    {
+      "test_number": 11,
+      "tested_by": "w-chuhao",
+      "tested_at": "2026-08-31T12:10:41.539862+08:00",
+      "note": "Phase 2.1",
+      "metrics": {
+        "sample_count": 200,
+        "hit_rate_at_10": 1.0,
+        "mrr": 0.627704,
+        "mttc": 1.735,
+        "efficiency": 0.9265,
+        "recommended_technical_score": 0.873611,
+        "reported_token_usage": {
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "total_tokens": 0
+        },
+        "scenario_metrics": {
+          "boundary": {
+            "sample_count": 10,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.79,
+            "mttc": 2.3
+          },
+          "browsing": {
+            "sample_count": 80,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.518294,
+            "mttc": 1.3625
+          },
+          "buying": {
+            "sample_count": 80,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.639926,
+            "mttc": 1.325
+          },
+          "intent_override": {
+            "sample_count": 30,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.832778,
+            "mttc": 3.633333
+          }
+        }
+      }
+    },
+    {
+      "test_number": 12,
+      "tested_by": "w-chuhao",
+      "tested_at": "2026-08-31T13:51:12.424992+08:00",
+      "note": "Phase 2.2",
+      "metrics": {
+        "sample_count": 200,
+        "hit_rate_at_10": 1.0,
+        "mrr": 0.628121,
+        "mttc": 1.735,
+        "efficiency": 0.9265,
+        "recommended_technical_score": 0.873736,
+        "reported_token_usage": {
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "total_tokens": 0
+        },
+        "scenario_metrics": {
+          "boundary": {
+            "sample_count": 10,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.79,
+            "mttc": 2.3
+          },
+          "browsing": {
+            "sample_count": 80,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.517252,
+            "mttc": 1.3625
+          },
+          "buying": {
+            "sample_count": 80,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.642009,
+            "mttc": 1.325
+          },
+          "intent_override": {
+            "sample_count": 30,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.832778,
+            "mttc": 3.633333
+          }
+        }
+      }
+    },
+    {
+      "test_number": 13,
+      "tested_by": "w-chuhao",
+      "tested_at": "2026-08-31T13:59:31.548930+08:00",
+      "note": "Phase 2.3",
+      "metrics": {
+        "sample_count": 200,
+        "hit_rate_at_10": 1.0,
+        "mrr": 0.627829,
+        "mttc": 1.735,
+        "efficiency": 0.9265,
+        "recommended_technical_score": 0.873649,
+        "reported_token_usage": {
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "total_tokens": 0
+        },
+        "scenario_metrics": {
+          "boundary": {
+            "sample_count": 10,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.79,
+            "mttc": 2.3
+          },
+          "browsing": {
+            "sample_count": 80,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.517252,
+            "mttc": 1.3625
+          },
+          "buying": {
+            "sample_count": 80,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.64128,
+            "mttc": 1.325
+          },
+          "intent_override": {
+            "sample_count": 30,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.832778,
+            "mttc": 3.633333
+          }
+        }
+      }
+    },
+    {
+      "test_number": 14,
+      "tested_by": "w-chuhao",
+      "tested_at": "2026-08-31T14:11:23.669926+08:00",
+      "note": "Phase 2E score-gap sweep: LOCAL_RERANKER_MIN_SCORE_GAP=0",
+      "metrics": {
+        "sample_count": 200,
+        "hit_rate_at_10": 1.0,
+        "mrr": 0.628121,
+        "mttc": 1.735,
+        "efficiency": 0.9265,
+        "recommended_technical_score": 0.873736,
+        "reported_token_usage": {
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "total_tokens": 0
+        },
+        "scenario_metrics": {
+          "boundary": {
+            "sample_count": 10,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.79,
+            "mttc": 2.3
+          },
+          "browsing": {
+            "sample_count": 80,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.517252,
+            "mttc": 1.3625
+          },
+          "buying": {
+            "sample_count": 80,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.642009,
+            "mttc": 1.325
+          },
+          "intent_override": {
+            "sample_count": 30,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.832778,
+            "mttc": 3.633333
+          }
+        }
+      }
+    },
+    {
+      "test_number": 15,
+      "tested_by": "w-chuhao",
+      "tested_at": "2026-08-31T14:15:42.371904+08:00",
+      "note": "Phase 2E score-gap sweep: LOCAL_RERANKER_MIN_SCORE_GAP=0.15",
+      "metrics": {
+        "sample_count": 200,
+        "hit_rate_at_10": 1.0,
+        "mrr": 0.628121,
+        "mttc": 1.735,
+        "efficiency": 0.9265,
+        "recommended_technical_score": 0.873736,
+        "reported_token_usage": {
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "total_tokens": 0
+        },
+        "scenario_metrics": {
+          "boundary": {
+            "sample_count": 10,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.79,
+            "mttc": 2.3
+          },
+          "browsing": {
+            "sample_count": 80,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.517252,
+            "mttc": 1.3625
+          },
+          "buying": {
+            "sample_count": 80,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.642009,
+            "mttc": 1.325
+          },
+          "intent_override": {
+            "sample_count": 30,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.832778,
+            "mttc": 3.633333
+          }
+        }
+      }
+    },
+    {
+      "test_number": 16,
+      "tested_by": "w-chuhao",
+      "tested_at": "2026-08-31T14:19:58.243280+08:00",
+      "note": "Phase 2E score-gap sweep: LOCAL_RERANKER_MIN_SCORE_GAP=0.3",
+      "metrics": {
+        "sample_count": 200,
+        "hit_rate_at_10": 1.0,
+        "mrr": 0.628246,
+        "mttc": 1.735,
+        "efficiency": 0.9265,
+        "recommended_technical_score": 0.873774,
+        "reported_token_usage": {
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "total_tokens": 0
+        },
+        "scenario_metrics": {
+          "boundary": {
+            "sample_count": 10,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.79,
+            "mttc": 2.3
+          },
+          "browsing": {
+            "sample_count": 80,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.517252,
+            "mttc": 1.3625
+          },
+          "buying": {
+            "sample_count": 80,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.642321,
+            "mttc": 1.325
+          },
+          "intent_override": {
+            "sample_count": 30,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.832778,
+            "mttc": 3.633333
+          }
+        }
+      }
+    },
+    {
+      "test_number": 17,
+      "tested_by": "w-chuhao",
+      "tested_at": "2026-08-31T14:45:43.597820+08:00",
+      "note": "Phase 2E score-gap sweep: LOCAL_RERANKER_MIN_SCORE_GAP=0.4",
+      "metrics": {
+        "sample_count": 200,
+        "hit_rate_at_10": 1.0,
+        "mrr": 0.628246,
+        "mttc": 1.735,
+        "efficiency": 0.9265,
+        "recommended_technical_score": 0.873774,
+        "reported_token_usage": {
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "total_tokens": 0
+        },
+        "scenario_metrics": {
+          "boundary": {
+            "sample_count": 10,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.79,
+            "mttc": 2.3
+          },
+          "browsing": {
+            "sample_count": 80,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.517252,
+            "mttc": 1.3625
+          },
+          "buying": {
+            "sample_count": 80,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.642321,
+            "mttc": 1.325
+          },
+          "intent_override": {
+            "sample_count": 30,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.832778,
+            "mttc": 3.633333
+          }
+        }
+      }
+    },
+    {
+      "test_number": 14,
+      "tested_by": "w-chuhao",
+      "tested_at": "2026-08-31T14:59:28.294242+08:00",
+      "note": "Phase 2D: structured state-only semantic query",
+      "metrics": {
+        "sample_count": 200,
+        "hit_rate_at_10": 1.0,
+        "mrr": 0.632712,
+        "mttc": 1.74,
+        "efficiency": 0.926,
+        "recommended_technical_score": 0.875014,
+        "reported_token_usage": {
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "total_tokens": 0
+        },
+        "scenario_metrics": {
+          "boundary": {
+            "sample_count": 10,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.79,
+            "mttc": 2.3
+          },
+          "browsing": {
+            "sample_count": 80,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.517252,
+            "mttc": 1.3625
+          },
+          "buying": {
+            "sample_count": 80,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.653487,
+            "mttc": 1.3375
+          },
+          "intent_override": {
+            "sample_count": 30,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.832778,
+            "mttc": 3.633333
+          }
+        }
+      }
+    },
+    {
+      "test_number": 15,
+      "tested_by": "w-chuhao",
+      "tested_at": "2026-08-31T15:10:43.138376+08:00",
+      "note": "Phase 2F: priority-weighted semantic specificity",
+      "metrics": {
+        "sample_count": 200,
+        "hit_rate_at_10": 1.0,
+        "mrr": 0.626758,
+        "mttc": 1.735,
+        "efficiency": 0.9265,
+        "recommended_technical_score": 0.873327,
+        "reported_token_usage": {
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "total_tokens": 0
+        },
+        "scenario_metrics": {
+          "boundary": {
+            "sample_count": 10,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.79,
+            "mttc": 2.3
+          },
+          "browsing": {
+            "sample_count": 80,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.517252,
+            "mttc": 1.3625
+          },
+          "buying": {
+            "sample_count": 80,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.638601,
             "mttc": 1.325
           },
           "intent_override": {

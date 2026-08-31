@@ -364,6 +364,24 @@ class SessionState:
         parts = [self.category_context or "", self.search_text()]
         return " ".join(dict.fromkeys(part.strip() for part in parts if part.strip()))
 
+    def semantic_query(self) -> str:
+        """Describe validated session constraints without conversational filler."""
+        parts: list[str] = []
+        category_context = (self.category_context or "").strip()
+        if category_context:
+            parts.append(f"category: {category_context}")
+        for attribute in CONSTRAINT_KEYS:
+            value = self.constraints[attribute]
+            if value is None:
+                continue
+            text = str(value).strip()
+            if not text:
+                continue
+            entry = f"{attribute.replace('_', ' ')}: {text}"
+            if entry not in parts:
+                parts.append(entry)
+        return "; ".join(parts)
+
     def retrieval_query_for(self, message: str) -> str:
         stable = self.retrieval_query()
         useful_message = DIALOGUE_ONLY_RE.sub(" ", message)

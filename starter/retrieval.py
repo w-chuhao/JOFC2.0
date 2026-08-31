@@ -107,6 +107,7 @@ MISSING_ATTRIBUTE_PENALTIES = {
 }
 EXACT_FEATURE_PHRASE_BONUS = 0.75
 RRF_K = 60.0
+SEMANTIC_PROTECTED_HEAD_LIMIT = 2
 GENERIC_FEATURE_PHRASE_TERMS = frozenset(
     {
         "all",
@@ -159,6 +160,20 @@ class SemanticReranker(Protocol):
     def rank(self, query: str, documents: list[tuple[str, str]]) -> list[str]: ...
 
 
+@dataclass(frozen=True)
+class SemanticRerankOutcome:
+    ranked_ids: list[str]
+    reranked: bool
+    candidate_count: int
+    specificity: int
+    protected_first: bool
+    gate_reason: str
+    semantic_ranks: dict[str, int]
+    semantic_scores: dict[str, float]
+    protected_head_count: int = 0
+    confidence_gap: float | None = None
+
+
 def _text(value: object) -> str:
     if value is None:
         return ""
@@ -193,6 +208,8 @@ def _price(value: object) -> float | None:
 @dataclass(slots=True)
 class ProductDocument:
     parent_asin: str
+    title: str
+    categories: str
     semantic_text: str
     full_tokens: str
     category_tokens: str
@@ -224,6 +241,8 @@ class CatalogSearch:
         semantic_weight: float = 0.35,
         semantic_candidate_limit: int = 20,
         semantic_min_specific_constraints: int = 2,
+        semantic_min_score_gap: float = 0.3,
+        enable_ranking_diagnostics: bool = False,
     ) -> None:
         self.catalog_path = Path(catalog_path)
         self.semantic_reranker = semantic_reranker
@@ -233,6 +252,8 @@ class CatalogSearch:
             1,
             int(semantic_min_specific_constraints),
         )
+        self.semantic_min_score_gap = max(0.0, float(semantic_min_score_gap))
+        self.enable_ranking_diagnostics = bool(enable_ranking_diagnostics)
         self.connection = sqlite3.connect(":memory:")
         self.products: dict[str, ProductDocument] = {}
         self.feature_term_document_frequency: Counter[str] = Counter()
@@ -270,6 +291,10 @@ class CatalogSearch:
                 ).strip()
                 self.products[parent_asin] = ProductDocument(
                     parent_asin=parent_asin,
+                    title=title if self.enable_ranking_diagnostics else "",
+                    categories=(
+                        categories if self.enable_ranking_diagnostics else ""
+                    ),
                     semantic_text=(
                         full_text[:4000] if self.semantic_reranker is not None else ""
                     ),
@@ -314,17 +339,18 @@ class CatalogSearch:
         except KeyError as error:
             raise ValueError(f"unsupported retrieval route: {route}") from error
 
-    def _bm25_route(self, query: str, limit: int) -> list[str]:
+    def _bm25_route(self, query: str, limit: int) -> list[tuple[str, float]]:
         unique_terms = list(dict.fromkeys(_terms(query)))[:40]
         expression = " OR ".join(f'"{term}"' for term in unique_terms)
         if not expression:
             return []
         rows = self.connection.execute(
-            "SELECT parent_asin FROM products WHERE products MATCH ? "
+            "SELECT parent_asin, bm25(products, 0.0, 6.0, 4.0, 2.5, 2.5, 1.5, 1.0) "
+            "FROM products WHERE products MATCH ? "
             "ORDER BY bm25(products, 0.0, 6.0, 4.0, 2.5, 2.5, 1.5, 1.0) LIMIT ?",
             (expression, limit),
         ).fetchall()
-        return [str(row[0]) for row in rows]
+        return [(str(row[0]), float(row[1])) for row in rows]
 
     @staticmethod
     def _constraint_text(constraints: dict, key: str) -> str:
@@ -347,6 +373,7 @@ class CatalogSearch:
         priorities: dict[str, str],
         *,
         route: str = "browsing",
+        route_diagnostics: dict[str, list[dict[str, object]]] | None = None,
     ) -> dict[str, float]:
         policy = self._retrieval_policy(route)
         constraint_values = [
@@ -355,8 +382,8 @@ class CatalogSearch:
             if self._constraint_text(constraints, key)
         ]
         combined_query = self._expand_aliases(" ".join((query, *constraint_values)).strip() or query)
-        routes: list[tuple[str, float, int]] = [
-            (combined_query, 2.0, policy.combined_limit)
+        routes: list[tuple[str, str, float, int]] = [
+            ("combined", combined_query, 2.0, policy.combined_limit)
         ]
         route_settings = {
             "category": (3.0, 500),
@@ -373,6 +400,7 @@ class CatalogSearch:
             if value:
                 routes.append(
                     (
+                        key,
                         self._expand_aliases(value),
                         weight,
                         int(limit * policy.constraint_limit_multiplier),
@@ -381,18 +409,28 @@ class CatalogSearch:
 
         scores: dict[str, float] = {}
         seen_queries: set[str] = set()
-        for route_query, route_weight, limit in routes:
+        for route_name, route_query, route_weight, limit in routes:
             normalized_query = " ".join(dict.fromkeys(_terms(route_query)))
             if not normalized_query or normalized_query in seen_queries:
                 continue
             seen_queries.add(normalized_query)
-            for rank, parent_asin in enumerate(
+            for rank, (parent_asin, bm25_score) in enumerate(
                 self._bm25_route(route_query, limit),
                 start=1,
             ):
-                scores[parent_asin] = scores.get(parent_asin, 0.0) + (
-                    route_weight / (RRF_K + rank)
-                )
+                contribution = route_weight / (RRF_K + rank)
+                scores[parent_asin] = scores.get(parent_asin, 0.0) + contribution
+                if route_diagnostics is not None:
+                    route_diagnostics.setdefault(parent_asin, []).append(
+                        {
+                            "route": route_name,
+                            "query": route_query,
+                            "rank": rank,
+                            "bm25_score": bm25_score,
+                            "route_weight": route_weight,
+                            "rrf_contribution": contribution,
+                        }
+                    )
         return scores
 
     def _guarded_required_filter(
@@ -525,12 +563,27 @@ class CatalogSearch:
         exclusions: dict[str, set[str]],
         feature_evidence: list[tuple[str, str]] | None = None,
         popularity_weight: float = 0.0,
+        breakdown: dict[str, object] | None = None,
     ) -> float | None:
+        initial_retrieval_score = retrieval_score
+        budget_adjustment = 0.0
+        attribute_contributions: dict[str, list[dict[str, object]]] | None = (
+            {} if breakdown is not None else None
+        )
         budget = constraints.get("budget")
         if isinstance(budget, (int, float)) and product.price is not None:
             if product.price > float(budget):
+                if breakdown is not None:
+                    breakdown.update(
+                        {
+                            "filtered_reason": "over_budget",
+                            "product_price": product.price,
+                            "budget": float(budget),
+                        }
+                    )
                 return None
-            retrieval_score += 0.5
+            budget_adjustment = 0.5
+            retrieval_score += budget_adjustment
 
         score = retrieval_score
         for attribute, weight in ATTRIBUTE_WEIGHTS.items():
@@ -548,26 +601,74 @@ class CatalogSearch:
                         or not self._is_common_feature_clause(clause)
                         else SOFT_CONSTRAINT_MULTIPLIER
                     )
-                    if coverage:
-                        score += clause_weight * multiplier * coverage
-                    else:
-                        score -= penalty * multiplier
+                    contribution = (
+                        clause_weight * multiplier * coverage
+                        if coverage
+                        else -penalty * multiplier
+                    )
+                    score += contribution
+                    if attribute_contributions is not None:
+                        attribute_contributions.setdefault(attribute, []).append(
+                            {
+                                "value": clause,
+                                "source_kind": source_kind,
+                                "coverage": coverage,
+                                "priority_multiplier": multiplier,
+                                "contribution": contribution,
+                            }
+                        )
                 continue
             coverage = self._attribute_coverage(product, attribute, value)
             multiplier = 1.0 if priorities.get(attribute) == "required" else SOFT_CONSTRAINT_MULTIPLIER
-            if coverage:
-                score += weight * multiplier * coverage
-            else:
-                score -= MISSING_ATTRIBUTE_PENALTIES[attribute] * multiplier
+            contribution = (
+                weight * multiplier * coverage
+                if coverage
+                else -MISSING_ATTRIBUTE_PENALTIES[attribute] * multiplier
+            )
+            score += contribution
+            if attribute_contributions is not None:
+                attribute_contributions.setdefault(attribute, []).append(
+                    {
+                        "value": value,
+                        "coverage": coverage,
+                        "priority": priorities.get(attribute, "preferred"),
+                        "priority_multiplier": multiplier,
+                        "contribution": contribution,
+                    }
+                )
         for attribute, values in exclusions.items():
             if any(
                 self._attribute_coverage(product, attribute, value) >= 0.5
                 for value in values
             ):
+                if breakdown is not None:
+                    breakdown.update(
+                        {
+                            "filtered_reason": "excluded_constraint",
+                            "excluded_attribute": attribute,
+                        }
+                    )
                 return None
-        score += self._exact_feature_phrase_bonus(product, constraints)
-        score += popularity_weight * math.log1p(max(0, product.rating_number))
-        score += RATING_WEIGHT * max(0.0, product.average_rating)
+        feature_phrase_bonus = self._exact_feature_phrase_bonus(product, constraints)
+        popularity_contribution = popularity_weight * math.log1p(
+            max(0, product.rating_number)
+        )
+        rating_contribution = RATING_WEIGHT * max(0.0, product.average_rating)
+        score += feature_phrase_bonus
+        score += popularity_contribution
+        score += rating_contribution
+        if breakdown is not None:
+            breakdown.update(
+                {
+                    "retrieval_score": initial_retrieval_score,
+                    "budget_adjustment": budget_adjustment,
+                    "attribute_contributions": attribute_contributions or {},
+                    "feature_phrase_bonus": feature_phrase_bonus,
+                    "popularity_contribution": popularity_contribution,
+                    "rating_contribution": rating_contribution,
+                    "total_score": score,
+                }
+            )
         return score
 
     @staticmethod
@@ -591,21 +692,33 @@ class CatalogSearch:
         constraints: dict,
         priorities: dict[str, str],
     ) -> bool:
+        coverage = self._required_constraint_coverage(
+            product,
+            constraints,
+            priorities,
+        )
+        return bool(coverage) and all(value >= 0.5 for value in coverage.values())
+
+    def _required_constraint_coverage(
+        self,
+        product: ProductDocument,
+        constraints: dict,
+        priorities: dict[str, str],
+    ) -> dict[str, float]:
         required = [
             attribute
             for attribute in ATTRIBUTE_WEIGHTS
             if constraints.get(attribute) is not None
             and priorities.get(attribute) == "required"
         ]
-        return bool(required) and all(
-            self._attribute_coverage(
+        return {
+            attribute: self._attribute_coverage(
                 product,
                 attribute,
                 constraints[attribute],
             )
-            >= 0.5
             for attribute in required
-        )
+        }
 
     def _semantic_rerank(
         self,
@@ -613,14 +726,40 @@ class CatalogSearch:
         ranked_ids: list[str],
         constraints: dict,
         priorities: dict[str, str],
-    ) -> tuple[list[str], bool, int, int, bool]:
+        *,
+        semantic_rerank_allowed: bool,
+    ) -> SemanticRerankOutcome:
         specificity = self._semantic_specific_constraint_count(constraints)
-        if (
-            self.semantic_reranker is None
-            or not ranked_ids
-            or specificity < self.semantic_min_specific_constraints
-        ):
-            return ranked_ids, False, 0, specificity, False
+        if not semantic_rerank_allowed:
+            return SemanticRerankOutcome(
+                ranked_ids,
+                False,
+                0,
+                specificity,
+                False,
+                "disabled_by_caller",
+                {},
+                {},
+            )
+        if self.semantic_reranker is None:
+            return SemanticRerankOutcome(
+                ranked_ids, False, 0, specificity, False, "no_reranker", {}, {}
+            )
+        if not ranked_ids:
+            return SemanticRerankOutcome(
+                ranked_ids, False, 0, specificity, False, "no_candidates", {}, {}
+            )
+        if specificity < self.semantic_min_specific_constraints:
+            return SemanticRerankOutcome(
+                ranked_ids,
+                False,
+                0,
+                specificity,
+                False,
+                "insufficient_specificity",
+                {},
+                {},
+            )
 
         candidate_ids = ranked_ids[: self.semantic_candidate_limit]
         documents = [
@@ -628,9 +767,37 @@ class CatalogSearch:
             for parent_asin in candidate_ids
         ]
         try:
-            proposed_order = self.semantic_reranker.rank(query, documents)
+            score = getattr(self.semantic_reranker, "score", None)
+            if callable(score):
+                raw_scores = [float(value) for value in score(query, documents)]
+                if len(raw_scores) != len(documents):
+                    raise ValueError(
+                        "semantic reranker must return one score per document"
+                    )
+                if any(not math.isfinite(value) for value in raw_scores):
+                    raise ValueError("semantic reranker scores must be finite")
+                proposed_order = [
+                    parent_asin
+                    for (parent_asin, _), _ in sorted(
+                        zip(documents, raw_scores, strict=True),
+                        key=lambda item: -item[1],
+                    )
+                ]
+                semantic_scores = dict(zip(candidate_ids, raw_scores, strict=True))
+            else:
+                proposed_order = self.semantic_reranker.rank(query, documents)
+                semantic_scores = {}
         except Exception:
-            return ranked_ids, False, 0, specificity, False
+            return SemanticRerankOutcome(
+                ranked_ids,
+                False,
+                0,
+                specificity,
+                False,
+                "reranker_failure",
+                {},
+                {},
+            )
 
         candidate_set = set(candidate_ids)
         semantic_order: list[str] = []
@@ -640,7 +807,16 @@ class CatalogSearch:
                 seen.add(parent_asin)
                 semantic_order.append(parent_asin)
         if not semantic_order:
-            return ranked_ids, False, 0, specificity, False
+            return SemanticRerankOutcome(
+                ranked_ids,
+                False,
+                0,
+                specificity,
+                False,
+                "empty_semantic_order",
+                {},
+                semantic_scores,
+            )
         semantic_order.extend(
             parent_asin for parent_asin in candidate_ids if parent_asin not in seen
         )
@@ -651,12 +827,66 @@ class CatalogSearch:
         semantic_rank = {
             parent_asin: rank for rank, parent_asin in enumerate(semantic_order, start=1)
         }
-        protected_first = self._satisfies_all_required_constraints(
-            self.products[candidate_ids[0]],
-            constraints,
-            priorities,
-        )
-        movable_ids = candidate_ids[1:] if protected_first else candidate_ids
+        protected_head_count = 0
+        for parent_asin in candidate_ids[:SEMANTIC_PROTECTED_HEAD_LIMIT]:
+            if not self._satisfies_all_required_constraints(
+                self.products[parent_asin],
+                constraints,
+                priorities,
+            ):
+                break
+            protected_head_count += 1
+        protected_ids = candidate_ids[:protected_head_count]
+        movable_ids = candidate_ids[protected_head_count:]
+        confidence_gap: float | None = None
+        if semantic_scores:
+            if len(movable_ids) < 2:
+                return SemanticRerankOutcome(
+                    ranked_ids,
+                    False,
+                    len(candidate_ids),
+                    specificity,
+                    bool(protected_ids),
+                    "no_movable_candidates",
+                    semantic_rank,
+                    semantic_scores,
+                    protected_head_count,
+                )
+            deterministic_leader = movable_ids[0]
+            semantic_leader = max(
+                movable_ids,
+                key=lambda parent_asin: semantic_scores[parent_asin],
+            )
+            confidence_gap = (
+                semantic_scores[semantic_leader]
+                - semantic_scores[deterministic_leader]
+            )
+            if semantic_leader == deterministic_leader:
+                return SemanticRerankOutcome(
+                    ranked_ids,
+                    False,
+                    len(candidate_ids),
+                    specificity,
+                    bool(protected_ids),
+                    "semantic_head_aligned",
+                    semantic_rank,
+                    semantic_scores,
+                    protected_head_count,
+                    confidence_gap,
+                )
+            if confidence_gap < self.semantic_min_score_gap:
+                return SemanticRerankOutcome(
+                    ranked_ids,
+                    False,
+                    len(candidate_ids),
+                    specificity,
+                    bool(protected_ids),
+                    "insufficient_semantic_confidence",
+                    semantic_rank,
+                    semantic_scores,
+                    protected_head_count,
+                    confidence_gap,
+                )
         fused = sorted(
             movable_ids,
             key=lambda parent_asin: (
@@ -669,16 +899,21 @@ class CatalogSearch:
             ),
         )
         fused_ids = (
-            ([candidate_ids[0]] if protected_first else [])
+            protected_ids
             + fused
             + ranked_ids[len(candidate_ids) :]
         )
-        return (
+        return SemanticRerankOutcome(
             fused_ids,
             True,
             len(candidate_ids),
             specificity,
-            protected_first,
+            bool(protected_ids),
+            "applied",
+            semantic_rank,
+            semantic_scores,
+            protected_head_count,
+            confidence_gap,
         )
 
     def _candidate_attribute_stats(
@@ -725,11 +960,13 @@ class CatalogSearch:
         constraints: dict,
         top_k: int,
         *,
+        semantic_query: str | None = None,
         exclude_ids: set[str] | None = None,
         constraint_priorities: dict[str, str] | None = None,
         excluded_constraints: dict[str, set[str]] | None = None,
         feature_evidence: list[tuple[str, str]] | None = None,
         route: str = "browsing",
+        semantic_rerank_allowed: bool = True,
     ) -> SearchResult:
         """Return ranked IDs and statistics using current validated constraints.
 
@@ -757,11 +994,13 @@ class CatalogSearch:
             policy.popularity_weight,
             len(excluded),
         )
+        route_diagnostics = {} if self.enable_ranking_diagnostics else None
         candidate_scores = self._candidate_scores(
             query,
             constraints,
             priorities,
             route=route,
+            route_diagnostics=route_diagnostics,
         )
         candidate_ids = list(candidate_scores) or list(self.products)
         category = constraints.get("category")
@@ -803,44 +1042,104 @@ class CatalogSearch:
                 ranked.append((score, parent_asin))
         ranked.sort(key=lambda item: (-item[0], item[1]))
         ranked_ids = [parent_asin for _, parent_asin in ranked]
-        (
+        deterministic_ranks = {
+            parent_asin: rank for rank, parent_asin in enumerate(ranked_ids, start=1)
+        }
+        reranker_query = semantic_query.strip() if semantic_query else query
+        semantic_outcome = self._semantic_rerank(
+            reranker_query,
             ranked_ids,
-            semantic_reranked,
-            semantic_candidate_count,
-            semantic_specific_constraint_count,
-            semantic_protected_first,
-        ) = self._semantic_rerank(query, ranked_ids, constraints, priorities)
-        return SearchResult(
-            recommendation_ids=[
-                parent_asin
-                for parent_asin in ranked_ids
-                if parent_asin not in excluded
-            ][:limit],
-            candidate_attribute_stats=self._candidate_attribute_stats(ranked_ids),
-            diagnostics={
-                "candidate_count": len(candidate_ids),
-                "ranked_count": len(ranked_ids),
-                "route": route,
-                "strategy": policy.strategy,
-                "popularity_weight": popularity_weight,
-                "required_filter_attributes": required_filter_attributes,
-                "semantic_reranked": semantic_reranked,
-                "semantic_candidate_count": semantic_candidate_count,
-                "semantic_specific_constraint_count": (
-                    semantic_specific_constraint_count
-                ),
-                "semantic_protected_first": semantic_protected_first,
-                "active_exclusion_count": sum(
-                    len(values) for values in exclusions.values()
-                ),
-                "feature_clause_priorities": {
-                    value: (
-                        "required"
-                        if self._feature_clause_is_explicit(source_kind)
-                        or not self._is_common_feature_clause(value)
-                        else "preferred"
-                    )
-                    for value, source_kind in (feature_evidence or [])
-                },
+            constraints,
+            priorities,
+            semantic_rerank_allowed=semantic_rerank_allowed,
+        )
+        ranked_ids = semantic_outcome.ranked_ids
+        recommendation_ids = [
+            parent_asin
+            for parent_asin in ranked_ids
+            if parent_asin not in excluded
+        ][:limit]
+        ranking_candidates: list[dict[str, object]] = []
+        if self.enable_ranking_diagnostics:
+            for returned_rank, parent_asin in enumerate(recommendation_ids, start=1):
+                product = self.products[parent_asin]
+                score_breakdown: dict[str, object] = {}
+                self._rerank_score(
+                    product,
+                    candidate_scores.get(parent_asin, 0.0),
+                    constraints,
+                    priorities,
+                    exclusions,
+                    feature_evidence,
+                    popularity_weight,
+                    breakdown=score_breakdown,
+                )
+                ranking_candidates.append(
+                    {
+                        "parent_asin": parent_asin,
+                        "returned_rank": returned_rank,
+                        "deterministic_rank": deterministic_ranks[parent_asin],
+                        "rank_movement": returned_rank
+                        - deterministic_ranks[parent_asin],
+                        "semantic_rank": semantic_outcome.semantic_ranks.get(
+                            parent_asin
+                        ),
+                        "semantic_score": semantic_outcome.semantic_scores.get(
+                            parent_asin
+                        ),
+                        "required_constraint_coverage": self._required_constraint_coverage(
+                            product,
+                            constraints,
+                            priorities,
+                        ),
+                        "title": product.title,
+                        "categories": product.categories,
+                        **score_breakdown,
+                        "route_signals": (route_diagnostics or {}).get(
+                            parent_asin,
+                            [],
+                        ),
+                    }
+                )
+        diagnostics: dict[str, object] = {
+            "candidate_count": len(candidate_ids),
+            "ranked_count": len(ranked_ids),
+            "route": route,
+            "strategy": policy.strategy,
+            "popularity_weight": popularity_weight,
+            "required_filter_attributes": required_filter_attributes,
+            "semantic_reranked": semantic_outcome.reranked,
+            "semantic_candidate_count": semantic_outcome.candidate_count,
+            "semantic_specific_constraint_count": semantic_outcome.specificity,
+            "semantic_protected_first": semantic_outcome.protected_first,
+            "semantic_protected_head_count": semantic_outcome.protected_head_count,
+            "semantic_confidence_gap": semantic_outcome.confidence_gap,
+            "semantic_min_score_gap": self.semantic_min_score_gap,
+            "semantic_gate_reason": semantic_outcome.gate_reason,
+            "semantic_scores_available": bool(semantic_outcome.semantic_scores),
+            "active_exclusion_count": sum(
+                len(values) for values in exclusions.values()
+            ),
+            "feature_clause_priorities": {
+                value: (
+                    "required"
+                    if self._feature_clause_is_explicit(source_kind)
+                    or not self._is_common_feature_clause(value)
+                    else "preferred"
+                )
+                for value, source_kind in (feature_evidence or [])
             },
+        }
+        if self.enable_ranking_diagnostics:
+            diagnostics.update(
+                {
+                    "ranking_query": query,
+                    "semantic_query": reranker_query,
+                    "ranking_candidates": ranking_candidates,
+                }
+            )
+        return SearchResult(
+            recommendation_ids=recommendation_ids,
+            candidate_attribute_stats=self._candidate_attribute_stats(ranked_ids),
+            diagnostics=diagnostics,
         )

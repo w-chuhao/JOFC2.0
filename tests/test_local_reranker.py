@@ -10,6 +10,19 @@ from starter.local_reranker import LocalCrossEncoderReranker
 
 
 class LocalCrossEncoderRerankerTest(unittest.TestCase):
+    def test_score_returns_raw_model_scores_in_input_order(self) -> None:
+        reranker = LocalCrossEncoderReranker(
+            "unused-in-test",
+            scorer=lambda query, texts: [0.2, 0.9, 0.5],
+        )
+
+        result = reranker.score(
+            "comfortable walking shoes",
+            [("A", "first"), ("B", "second"), ("C", "third")],
+        )
+
+        self.assertEqual(result, [0.2, 0.9, 0.5])
+
     def test_rank_orders_existing_ids_by_descending_model_score(self) -> None:
         reranker = LocalCrossEncoderReranker(
             "unused-in-test",
