@@ -18,5 +18,8 @@ tests/test_organizer_pipeline.py
 *.log
 .tmp/
 
+# Local demo-video planning artifact.
+docs/demo_video_script.md
+
 # Local copy of the TechJam problem statement; keep it out of the submission repository.
 [[]Early Bird Access] TikTok TechJam 2026 Tracks & Problem Statements - Feishu Docs.pdf
