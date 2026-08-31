@@ -163,6 +163,11 @@ Once a shopper changes their intent, semantic reranking is disabled for the rest
 of that session. The deterministic constrained ranker remains active, avoiding
 semantic promotion based on stale pre-override phrasing.
 
+For specific non-override requests, the semantic reranker also preserves a
+leading deterministic head of up to two candidates when each fully satisfies
+the required constraints. Only the remaining candidates are eligible for
+semantic promotion.
+
 An independent 18-case hard-negative benchmark is available in `tests/fixtures/semantic_ranking_cases.json`, with no target or candidate overlap against the public ground-truth ASINs. It compares the current L6 CrossEncoder, an L12 CrossEncoder, and a dense L12 MiniLM using `scripts/benchmark_semantic_models.py`. See `docs/testing/semantic-model-comparison.md` for methodology, results, limitations, and the reproduction command. The result supports gated L6 reranking for richly specified queries and dense MiniLM as a candidate route; it does not justify enabling either model for broad category-only public queries.
 
 ### Optional DeepSeek planner

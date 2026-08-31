@@ -107,6 +107,7 @@ MISSING_ATTRIBUTE_PENALTIES = {
 }
 EXACT_FEATURE_PHRASE_BONUS = 0.75
 RRF_K = 60.0
+SEMANTIC_PROTECTED_HEAD_LIMIT = 2
 GENERIC_FEATURE_PHRASE_TERMS = frozenset(
     {
         "all",
@@ -169,6 +170,7 @@ class SemanticRerankOutcome:
     gate_reason: str
     semantic_ranks: dict[str, int]
     semantic_scores: dict[str, float]
+    protected_head_count: int = 0
 
 
 def _text(value: object) -> str:
@@ -822,12 +824,17 @@ class CatalogSearch:
         semantic_rank = {
             parent_asin: rank for rank, parent_asin in enumerate(semantic_order, start=1)
         }
-        protected_first = self._satisfies_all_required_constraints(
-            self.products[candidate_ids[0]],
-            constraints,
-            priorities,
-        )
-        movable_ids = candidate_ids[1:] if protected_first else candidate_ids
+        protected_head_count = 0
+        for parent_asin in candidate_ids[:SEMANTIC_PROTECTED_HEAD_LIMIT]:
+            if not self._satisfies_all_required_constraints(
+                self.products[parent_asin],
+                constraints,
+                priorities,
+            ):
+                break
+            protected_head_count += 1
+        protected_ids = candidate_ids[:protected_head_count]
+        movable_ids = candidate_ids[protected_head_count:]
         fused = sorted(
             movable_ids,
             key=lambda parent_asin: (
@@ -840,7 +847,7 @@ class CatalogSearch:
             ),
         )
         fused_ids = (
-            ([candidate_ids[0]] if protected_first else [])
+            protected_ids
             + fused
             + ranked_ids[len(candidate_ids) :]
         )
@@ -849,10 +856,11 @@ class CatalogSearch:
             True,
             len(candidate_ids),
             specificity,
-            protected_first,
+            bool(protected_ids),
             "applied",
             semantic_rank,
             semantic_scores,
+            protected_head_count,
         )
 
     def _candidate_attribute_stats(
@@ -1049,6 +1057,7 @@ class CatalogSearch:
             "semantic_candidate_count": semantic_outcome.candidate_count,
             "semantic_specific_constraint_count": semantic_outcome.specificity,
             "semantic_protected_first": semantic_outcome.protected_first,
+            "semantic_protected_head_count": semantic_outcome.protected_head_count,
             "semantic_gate_reason": semantic_outcome.gate_reason,
             "semantic_scores_available": bool(semantic_outcome.semantic_scores),
             "active_exclusion_count": sum(

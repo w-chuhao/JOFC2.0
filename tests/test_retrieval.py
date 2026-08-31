@@ -530,7 +530,7 @@ class CatalogSearchTest(unittest.TestCase):
 
         self.assertEqual(
             result.recommendation_ids,
-            ["ZZZ_TIE_POPULAR", "AAA_TIE_LOW", "MMM_TIE_MIDDLE"],
+            ["ZZZ_TIE_POPULAR", "MMM_TIE_MIDDLE", "AAA_TIE_LOW"],
         )
         self.assertNotIn("UNKNOWN", result.recommendation_ids)
         self.assertEqual(len(result.recommendation_ids), len(set(result.recommendation_ids)))
@@ -538,7 +538,41 @@ class CatalogSearchTest(unittest.TestCase):
         self.assertEqual(result.diagnostics["semantic_candidate_count"], 3)
         self.assertEqual(result.diagnostics["semantic_specific_constraint_count"], 2)
         self.assertTrue(result.diagnostics["semantic_protected_first"])
+        self.assertEqual(result.diagnostics["semantic_protected_head_count"], 2)
         self.assertEqual(result.diagnostics["semantic_gate_reason"], "applied")
+
+    def test_semantic_reranker_protects_two_qualifying_head_candidates(self) -> None:
+        reranker = FakeSemanticReranker(
+            ["MMM_TIE_MIDDLE", "AAA_TIE_LOW", "ZZZ_TIE_POPULAR"]
+        )
+        semantic_search = CatalogSearch(
+            self.search.catalog_path,
+            semantic_reranker=reranker,
+            semantic_weight=10.0,
+        )
+        self.addCleanup(semantic_search.connection.close)
+
+        result = semantic_search.search(
+            query="green cotton casual shirt",
+            constraints=constraints(
+                category="shirts",
+                material="cotton",
+                color="green",
+            ),
+            top_k=3,
+            constraint_priorities={
+                "category": "required",
+                "material": "required",
+                "color": "required",
+            },
+            route="buying",
+        )
+
+        self.assertEqual(
+            result.recommendation_ids,
+            ["ZZZ_TIE_POPULAR", "MMM_TIE_MIDDLE", "AAA_TIE_LOW"],
+        )
+        self.assertEqual(result.diagnostics["semantic_protected_head_count"], 2)
 
     def test_caller_can_disable_semantic_reranking(self) -> None:
         baseline = self.search.search(
