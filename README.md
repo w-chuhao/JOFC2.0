@@ -163,7 +163,7 @@ $env:LOCAL_RERANKER_MODEL="cross-encoder/ms-marco-MiniLM-L6-v2"
 $env:LOCAL_RERANKER_ALLOW_DOWNLOAD="1"  # first download only
 $env:LOCAL_RERANKER_WEIGHT="0.35"
 $env:LOCAL_RERANKER_CANDIDATES="20"
-$env:LOCAL_RERANKER_MIN_CONSTRAINTS="2"
+$env:LOCAL_RERANKER_MIN_CONSTRAINTS="2"  # weighted specificity threshold
 $env:LOCAL_RERANKER_MIN_SCORE_GAP="0.3"  # selected public-development setting
 python -m evaluator.local_evaluator --catalog "$catalogPath" --dataset data/public_set.jsonl --output results.semantic.json
 ```
@@ -190,6 +190,9 @@ Technical Score `0.873774`, slightly above Phase 2C (`0.628121` / `0.873736`).
 Gap `0.4` tied this result, so `0.3` is retained as the lower selected value.
 The reranker receives a separate labelled query built only from validated session
 state; BM25 retrieval continues to use the richer current-turn query.
+Its specificity gate weights required constraints as `1.0` and preferred
+constraints as `0.5`; the default threshold of `2` therefore requires either
+two required details or a richer set of preferred details.
 
 An independent 18-case hard-negative benchmark is available in `tests/fixtures/semantic_ranking_cases.json`, with no target or candidate overlap against the public ground-truth ASINs. It compares the current L6 CrossEncoder, an L12 CrossEncoder, and a dense L12 MiniLM using `scripts/benchmark_semantic_models.py`. See `docs/testing/semantic-model-comparison.md` for methodology, results, limitations, and the reproduction command. The result supports gated L6 reranking for richly specified queries and dense MiniLM as a candidate route; it does not justify enabling either model for broad category-only public queries.
 
