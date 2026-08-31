@@ -272,6 +272,20 @@ class AgentConversationTest(unittest.TestCase):
         self.assertIn("hiking shoes", query)
         self.assertNotIn("show me more", query.casefold())
 
+    def test_semantic_query_uses_only_labelled_validated_state(self) -> None:
+        state = SessionState.create({})
+        state.category_context = "hiking shoes"
+        state.constraints.update(
+            {"category": "shoes", "material": "leather", "color": "black"}
+        )
+
+        query = state.semantic_query()
+
+        self.assertEqual(
+            query,
+            "category: hiking shoes; category: shoes; material: leather; color: black",
+        )
+
     def test_candidate_statistics_select_discriminating_attribute(self) -> None:
         state = SessionState.create({})
         state.constraints["category"] = "shoes"

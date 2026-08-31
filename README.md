@@ -164,7 +164,7 @@ $env:LOCAL_RERANKER_ALLOW_DOWNLOAD="1"  # first download only
 $env:LOCAL_RERANKER_WEIGHT="0.35"
 $env:LOCAL_RERANKER_CANDIDATES="20"
 $env:LOCAL_RERANKER_MIN_CONSTRAINTS="2"
-$env:LOCAL_RERANKER_MIN_SCORE_GAP="0.5"
+$env:LOCAL_RERANKER_MIN_SCORE_GAP="0.3"  # selected public-development setting
 python -m evaluator.local_evaluator --catalog "$catalogPath" --dataset data/public_set.jsonl --output results.semantic.json
 ```
 
@@ -183,8 +183,13 @@ semantic promotion.
 
 The local CrossEncoder's raw scores are used only within a query: after the
 protected head, its best movable candidate must exceed the deterministic movable
-leader by `LOCAL_RERANKER_MIN_SCORE_GAP` (default `0.5`) before semantic fusion
-can change the order.
+leader by `LOCAL_RERANKER_MIN_SCORE_GAP` before semantic fusion can change the
+order. The code fallback and selected public-development setting are both
+`0.3`. In the recorded score-gap sweep, `0.3` produced MRR `0.628246` and
+Technical Score `0.873774`, slightly above Phase 2C (`0.628121` / `0.873736`).
+Gap `0.4` tied this result, so `0.3` is retained as the lower selected value.
+The reranker receives a separate labelled query built only from validated session
+state; BM25 retrieval continues to use the richer current-turn query.
 
 An independent 18-case hard-negative benchmark is available in `tests/fixtures/semantic_ranking_cases.json`, with no target or candidate overlap against the public ground-truth ASINs. It compares the current L6 CrossEncoder, an L12 CrossEncoder, and a dense L12 MiniLM using `scripts/benchmark_semantic_models.py`. See `docs/testing/semantic-model-comparison.md` for methodology, results, limitations, and the reproduction command. The result supports gated L6 reranking for richly specified queries and dense MiniLM as a candidate route; it does not justify enabling either model for broad category-only public queries.
 

@@ -241,7 +241,7 @@ class CatalogSearch:
         semantic_weight: float = 0.35,
         semantic_candidate_limit: int = 20,
         semantic_min_specific_constraints: int = 2,
-        semantic_min_score_gap: float = 0.5,
+        semantic_min_score_gap: float = 0.3,
         enable_ranking_diagnostics: bool = False,
     ) -> None:
         self.catalog_path = Path(catalog_path)
@@ -960,6 +960,7 @@ class CatalogSearch:
         constraints: dict,
         top_k: int,
         *,
+        semantic_query: str | None = None,
         exclude_ids: set[str] | None = None,
         constraint_priorities: dict[str, str] | None = None,
         excluded_constraints: dict[str, set[str]] | None = None,
@@ -1044,8 +1045,9 @@ class CatalogSearch:
         deterministic_ranks = {
             parent_asin: rank for rank, parent_asin in enumerate(ranked_ids, start=1)
         }
+        reranker_query = semantic_query.strip() if semantic_query else query
         semantic_outcome = self._semantic_rerank(
-            query,
+            reranker_query,
             ranked_ids,
             constraints,
             priorities,
@@ -1132,6 +1134,7 @@ class CatalogSearch:
             diagnostics.update(
                 {
                     "ranking_query": query,
+                    "semantic_query": reranker_query,
                     "ranking_candidates": ranking_candidates,
                 }
             )

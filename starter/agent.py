@@ -73,10 +73,10 @@ class Agent:
         if semantic_min_score_gap is None:
             try:
                 semantic_min_score_gap = float(
-                    os.environ.get("LOCAL_RERANKER_MIN_SCORE_GAP", "0.5")
+                    os.environ.get("LOCAL_RERANKER_MIN_SCORE_GAP", "0.3")
                 )
             except ValueError:
-                semantic_min_score_gap = 0.5
+                semantic_min_score_gap = 0.3
         self.retrieval = CatalogSearch(
             self.catalog_path,
             semantic_reranker=semantic_reranker,
@@ -172,8 +172,10 @@ class Agent:
         if state.category_context and retrieval_constraints.get("category"):
             retrieval_constraints["category"] = state.category_context
 
+        retrieval_query = state.retrieval_query_for(user_message)
         result = self.retrieval.search(
-            query=state.retrieval_query_for(user_message),
+            query=retrieval_query,
+            semantic_query=state.semantic_query(),
             constraints=retrieval_constraints,
             top_k=top_k,
             exclude_ids=exclude_ids,

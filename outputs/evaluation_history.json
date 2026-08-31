@@ -585,6 +585,51 @@
           }
         }
       }
+    },
+    {
+      "test_number": 14,
+      "tested_by": "w-chuhao",
+      "tested_at": "2026-08-31T14:59:28.294242+08:00",
+      "note": "Phase 2D: structured state-only semantic query",
+      "metrics": {
+        "sample_count": 200,
+        "hit_rate_at_10": 1.0,
+        "mrr": 0.632712,
+        "mttc": 1.74,
+        "efficiency": 0.926,
+        "recommended_technical_score": 0.875014,
+        "reported_token_usage": {
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "total_tokens": 0
+        },
+        "scenario_metrics": {
+          "boundary": {
+            "sample_count": 10,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.79,
+            "mttc": 2.3
+          },
+          "browsing": {
+            "sample_count": 80,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.517252,
+            "mttc": 1.3625
+          },
+          "buying": {
+            "sample_count": 80,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.653487,
+            "mttc": 1.3375
+          },
+          "intent_override": {
+            "sample_count": 30,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.832778,
+            "mttc": 3.633333
+          }
+        }
+      }
     }
   ]
 }
