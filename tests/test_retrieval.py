@@ -204,6 +204,7 @@ class CatalogSearchTest(unittest.TestCase):
         self.assertEqual(self.search.semantic_weight, 0.35)
         self.assertEqual(self.search.semantic_candidate_limit, 20)
         self.assertEqual(self.search.semantic_min_specific_constraints, 2)
+        self.assertEqual(self.search.semantic_min_score_gap, 0.5)
 
     def test_ranking_diagnostics_are_opt_in(self) -> None:
         result = self.search.search(
@@ -643,9 +644,9 @@ class CatalogSearchTest(unittest.TestCase):
             ),
             top_k=3,
             constraint_priorities={
-                "category": "required",
-                "material": "required",
-                "color": "required",
+                "category": "preferred",
+                "material": "preferred",
+                "color": "preferred",
             },
             route="buying",
         )
@@ -653,14 +654,64 @@ class CatalogSearchTest(unittest.TestCase):
         self.assertEqual(len(reranker.calls), 1)
         self.assertTrue(result.diagnostics["semantic_scores_available"])
         self.assertEqual(result.diagnostics["semantic_gate_reason"], "applied")
+        self.assertAlmostEqual(result.diagnostics["semantic_confidence_gap"], 0.8)
         candidates = result.diagnostics["ranking_candidates"]
-        self.assertEqual(candidates[0]["semantic_score"], 0.1)
-        self.assertEqual(candidates[0]["semantic_rank"], 3)
-        self.assertEqual(candidates[0]["rank_movement"], 0)
+        by_id = {candidate["parent_asin"]: candidate for candidate in candidates}
+        self.assertEqual(by_id["ZZZ_TIE_POPULAR"]["semantic_score"], 0.1)
+        self.assertEqual(by_id["ZZZ_TIE_POPULAR"]["semantic_rank"], 3)
         self.assertEqual(
             candidates[0]["required_constraint_coverage"],
-            {"category": 1.0, "material": 1.0, "color": 1.0},
+            {},
         )
+
+    def test_small_semantic_score_gap_preserves_deterministic_ranking(self) -> None:
+        baseline = self.search.search(
+            query="green cotton casual shirt",
+            constraints=constraints(
+                category="shirts",
+                material="cotton",
+                color="green",
+            ),
+            top_k=3,
+            constraint_priorities={
+                "category": "preferred",
+                "material": "preferred",
+                "color": "preferred",
+            },
+            route="buying",
+        )
+        reranker = FakeScoredSemanticReranker([0.1, 0.45, 0.3])
+        semantic_search = CatalogSearch(
+            self.search.catalog_path,
+            semantic_reranker=reranker,
+            semantic_weight=10.0,
+            semantic_min_score_gap=0.5,
+        )
+        self.addCleanup(semantic_search.connection.close)
+
+        result = semantic_search.search(
+            query="green cotton casual shirt",
+            constraints=constraints(
+                category="shirts",
+                material="cotton",
+                color="green",
+            ),
+            top_k=3,
+            constraint_priorities={
+                "category": "preferred",
+                "material": "preferred",
+                "color": "preferred",
+            },
+            route="buying",
+        )
+
+        self.assertEqual(result.recommendation_ids, baseline.recommendation_ids)
+        self.assertFalse(result.diagnostics["semantic_reranked"])
+        self.assertEqual(
+            result.diagnostics["semantic_gate_reason"],
+            "insufficient_semantic_confidence",
+        )
+        self.assertAlmostEqual(result.diagnostics["semantic_confidence_gap"], 0.35)
 
     def test_semantic_reranker_is_skipped_for_underspecified_buying_route(self) -> None:
         reranker = FakeSemanticReranker(["SHOE_CANVAS_LEATHER_STORE"])

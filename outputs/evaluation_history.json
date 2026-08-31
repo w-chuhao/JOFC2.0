@@ -47,186 +47,6 @@
       }
     },
     {
-      "test_number": 8,
-      "tested_by": "w-chuhao",
-      "tested_at": "2026-08-30T21:04:40.643834+08:00",
-      "note": "check score",
-      "metrics": {
-        "sample_count": 200,
-        "hit_rate_at_10": 1.0,
-        "mrr": 0.6238,
-        "mttc": 1.735,
-        "efficiency": 0.9265,
-        "recommended_technical_score": 0.87244,
-        "reported_token_usage": {
-          "prompt_tokens": 0,
-          "completion_tokens": 0,
-          "total_tokens": 0
-        },
-        "scenario_metrics": {
-          "boundary": {
-            "sample_count": 10,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.79,
-            "mttc": 2.3
-          },
-          "browsing": {
-            "sample_count": 80,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.526627,
-            "mttc": 1.3625
-          },
-          "buying": {
-            "sample_count": 80,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.63808,
-            "mttc": 1.325
-          },
-          "intent_override": {
-            "sample_count": 30,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.789444,
-            "mttc": 3.633333
-          }
-        }
-      }
-    },
-    {
-      "test_number": 9,
-      "tested_by": "w-chuhao",
-      "tested_at": "2026-08-30T21:17:00.284696+08:00",
-      "note": "trial mrr improvement",
-      "metrics": {
-        "sample_count": 200,
-        "hit_rate_at_10": 1.0,
-        "mrr": 0.628216,
-        "mttc": 1.775,
-        "efficiency": 0.9225,
-        "recommended_technical_score": 0.872965,
-        "reported_token_usage": {
-          "prompt_tokens": 0,
-          "completion_tokens": 0,
-          "total_tokens": 0
-        },
-        "scenario_metrics": {
-          "boundary": {
-            "sample_count": 10,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.79,
-            "mttc": 2.3
-          },
-          "browsing": {
-            "sample_count": 80,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.517252,
-            "mttc": 1.3625
-          },
-          "buying": {
-            "sample_count": 80,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.642247,
-            "mttc": 1.3375
-          },
-          "intent_override": {
-            "sample_count": 30,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.832778,
-            "mttc": 3.866667
-          }
-        }
-      }
-    },
-    {
-      "test_number": 10,
-      "tested_by": "w-chuhao",
-      "tested_at": "2026-08-30T21:47:30.157011+08:00",
-      "note": "Test 1",
-      "metrics": {
-        "sample_count": 200,
-        "hit_rate_at_10": 1.0,
-        "mrr": 0.628216,
-        "mttc": 1.775,
-        "efficiency": 0.9225,
-        "recommended_technical_score": 0.872965,
-        "reported_token_usage": {
-          "prompt_tokens": 0,
-          "completion_tokens": 0,
-          "total_tokens": 0
-        },
-        "scenario_metrics": {
-          "boundary": {
-            "sample_count": 10,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.79,
-            "mttc": 2.3
-          },
-          "browsing": {
-            "sample_count": 80,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.517252,
-            "mttc": 1.3625
-          },
-          "buying": {
-            "sample_count": 80,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.642247,
-            "mttc": 1.3375
-          },
-          "intent_override": {
-            "sample_count": 30,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.832778,
-            "mttc": 3.866667
-          }
-        }
-      }
-    },
-    {
-      "test_number": 11,
-      "tested_by": "w-chuhao",
-      "tested_at": "2026-08-30T21:50:21.301949+08:00",
-      "note": "Test 1",
-      "metrics": {
-        "sample_count": 200,
-        "hit_rate_at_10": 1.0,
-        "mrr": 0.628216,
-        "mttc": 1.775,
-        "efficiency": 0.9225,
-        "recommended_technical_score": 0.872965,
-        "reported_token_usage": {
-          "prompt_tokens": 0,
-          "completion_tokens": 0,
-          "total_tokens": 0
-        },
-        "scenario_metrics": {
-          "boundary": {
-            "sample_count": 10,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.79,
-            "mttc": 2.3
-          },
-          "browsing": {
-            "sample_count": 80,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.517252,
-            "mttc": 1.3625
-          },
-          "buying": {
-            "sample_count": 80,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.642247,
-            "mttc": 1.3375
-          },
-          "intent_override": {
-            "sample_count": 30,
-            "hit_rate_at_10": 1.0,
-            "mrr": 0.832778,
-            "mttc": 3.866667
-          }
-        }
-      }
-    },
-    {
       "test_number": 12,
       "tested_by": "w-chuhao",
       "tested_at": "2026-08-30T21:54:44.751331+08:00",
@@ -530,6 +350,231 @@
             "sample_count": 80,
             "hit_rate_at_10": 1.0,
             "mrr": 0.642009,
+            "mttc": 1.325
+          },
+          "intent_override": {
+            "sample_count": 30,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.832778,
+            "mttc": 3.633333
+          }
+        }
+      }
+    },
+    {
+      "test_number": 13,
+      "tested_by": "w-chuhao",
+      "tested_at": "2026-08-31T13:59:31.548930+08:00",
+      "note": "Phase 2.3",
+      "metrics": {
+        "sample_count": 200,
+        "hit_rate_at_10": 1.0,
+        "mrr": 0.627829,
+        "mttc": 1.735,
+        "efficiency": 0.9265,
+        "recommended_technical_score": 0.873649,
+        "reported_token_usage": {
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "total_tokens": 0
+        },
+        "scenario_metrics": {
+          "boundary": {
+            "sample_count": 10,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.79,
+            "mttc": 2.3
+          },
+          "browsing": {
+            "sample_count": 80,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.517252,
+            "mttc": 1.3625
+          },
+          "buying": {
+            "sample_count": 80,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.64128,
+            "mttc": 1.325
+          },
+          "intent_override": {
+            "sample_count": 30,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.832778,
+            "mttc": 3.633333
+          }
+        }
+      }
+    },
+    {
+      "test_number": 14,
+      "tested_by": "w-chuhao",
+      "tested_at": "2026-08-31T14:11:23.669926+08:00",
+      "note": "Phase 2E score-gap sweep: LOCAL_RERANKER_MIN_SCORE_GAP=0",
+      "metrics": {
+        "sample_count": 200,
+        "hit_rate_at_10": 1.0,
+        "mrr": 0.628121,
+        "mttc": 1.735,
+        "efficiency": 0.9265,
+        "recommended_technical_score": 0.873736,
+        "reported_token_usage": {
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "total_tokens": 0
+        },
+        "scenario_metrics": {
+          "boundary": {
+            "sample_count": 10,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.79,
+            "mttc": 2.3
+          },
+          "browsing": {
+            "sample_count": 80,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.517252,
+            "mttc": 1.3625
+          },
+          "buying": {
+            "sample_count": 80,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.642009,
+            "mttc": 1.325
+          },
+          "intent_override": {
+            "sample_count": 30,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.832778,
+            "mttc": 3.633333
+          }
+        }
+      }
+    },
+    {
+      "test_number": 15,
+      "tested_by": "w-chuhao",
+      "tested_at": "2026-08-31T14:15:42.371904+08:00",
+      "note": "Phase 2E score-gap sweep: LOCAL_RERANKER_MIN_SCORE_GAP=0.15",
+      "metrics": {
+        "sample_count": 200,
+        "hit_rate_at_10": 1.0,
+        "mrr": 0.628121,
+        "mttc": 1.735,
+        "efficiency": 0.9265,
+        "recommended_technical_score": 0.873736,
+        "reported_token_usage": {
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "total_tokens": 0
+        },
+        "scenario_metrics": {
+          "boundary": {
+            "sample_count": 10,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.79,
+            "mttc": 2.3
+          },
+          "browsing": {
+            "sample_count": 80,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.517252,
+            "mttc": 1.3625
+          },
+          "buying": {
+            "sample_count": 80,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.642009,
+            "mttc": 1.325
+          },
+          "intent_override": {
+            "sample_count": 30,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.832778,
+            "mttc": 3.633333
+          }
+        }
+      }
+    },
+    {
+      "test_number": 16,
+      "tested_by": "w-chuhao",
+      "tested_at": "2026-08-31T14:19:58.243280+08:00",
+      "note": "Phase 2E score-gap sweep: LOCAL_RERANKER_MIN_SCORE_GAP=0.3",
+      "metrics": {
+        "sample_count": 200,
+        "hit_rate_at_10": 1.0,
+        "mrr": 0.628246,
+        "mttc": 1.735,
+        "efficiency": 0.9265,
+        "recommended_technical_score": 0.873774,
+        "reported_token_usage": {
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "total_tokens": 0
+        },
+        "scenario_metrics": {
+          "boundary": {
+            "sample_count": 10,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.79,
+            "mttc": 2.3
+          },
+          "browsing": {
+            "sample_count": 80,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.517252,
+            "mttc": 1.3625
+          },
+          "buying": {
+            "sample_count": 80,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.642321,
+            "mttc": 1.325
+          },
+          "intent_override": {
+            "sample_count": 30,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.832778,
+            "mttc": 3.633333
+          }
+        }
+      }
+    },
+    {
+      "test_number": 17,
+      "tested_by": "w-chuhao",
+      "tested_at": "2026-08-31T14:45:43.597820+08:00",
+      "note": "Phase 2E score-gap sweep: LOCAL_RERANKER_MIN_SCORE_GAP=0.4",
+      "metrics": {
+        "sample_count": 200,
+        "hit_rate_at_10": 1.0,
+        "mrr": 0.628246,
+        "mttc": 1.735,
+        "efficiency": 0.9265,
+        "recommended_technical_score": 0.873774,
+        "reported_token_usage": {
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "total_tokens": 0
+        },
+        "scenario_metrics": {
+          "boundary": {
+            "sample_count": 10,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.79,
+            "mttc": 2.3
+          },
+          "browsing": {
+            "sample_count": 80,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.517252,
+            "mttc": 1.3625
+          },
+          "buying": {
+            "sample_count": 80,
+            "hit_rate_at_10": 1.0,
+            "mrr": 0.642321,
             "mttc": 1.325
           },
           "intent_override": {

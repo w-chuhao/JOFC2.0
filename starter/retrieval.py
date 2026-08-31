@@ -171,6 +171,7 @@ class SemanticRerankOutcome:
     semantic_ranks: dict[str, int]
     semantic_scores: dict[str, float]
     protected_head_count: int = 0
+    confidence_gap: float | None = None
 
 
 def _text(value: object) -> str:
@@ -240,6 +241,7 @@ class CatalogSearch:
         semantic_weight: float = 0.35,
         semantic_candidate_limit: int = 20,
         semantic_min_specific_constraints: int = 2,
+        semantic_min_score_gap: float = 0.5,
         enable_ranking_diagnostics: bool = False,
     ) -> None:
         self.catalog_path = Path(catalog_path)
@@ -250,6 +252,7 @@ class CatalogSearch:
             1,
             int(semantic_min_specific_constraints),
         )
+        self.semantic_min_score_gap = max(0.0, float(semantic_min_score_gap))
         self.enable_ranking_diagnostics = bool(enable_ranking_diagnostics)
         self.connection = sqlite3.connect(":memory:")
         self.products: dict[str, ProductDocument] = {}
@@ -835,6 +838,55 @@ class CatalogSearch:
             protected_head_count += 1
         protected_ids = candidate_ids[:protected_head_count]
         movable_ids = candidate_ids[protected_head_count:]
+        confidence_gap: float | None = None
+        if semantic_scores:
+            if len(movable_ids) < 2:
+                return SemanticRerankOutcome(
+                    ranked_ids,
+                    False,
+                    len(candidate_ids),
+                    specificity,
+                    bool(protected_ids),
+                    "no_movable_candidates",
+                    semantic_rank,
+                    semantic_scores,
+                    protected_head_count,
+                )
+            deterministic_leader = movable_ids[0]
+            semantic_leader = max(
+                movable_ids,
+                key=lambda parent_asin: semantic_scores[parent_asin],
+            )
+            confidence_gap = (
+                semantic_scores[semantic_leader]
+                - semantic_scores[deterministic_leader]
+            )
+            if semantic_leader == deterministic_leader:
+                return SemanticRerankOutcome(
+                    ranked_ids,
+                    False,
+                    len(candidate_ids),
+                    specificity,
+                    bool(protected_ids),
+                    "semantic_head_aligned",
+                    semantic_rank,
+                    semantic_scores,
+                    protected_head_count,
+                    confidence_gap,
+                )
+            if confidence_gap < self.semantic_min_score_gap:
+                return SemanticRerankOutcome(
+                    ranked_ids,
+                    False,
+                    len(candidate_ids),
+                    specificity,
+                    bool(protected_ids),
+                    "insufficient_semantic_confidence",
+                    semantic_rank,
+                    semantic_scores,
+                    protected_head_count,
+                    confidence_gap,
+                )
         fused = sorted(
             movable_ids,
             key=lambda parent_asin: (
@@ -861,6 +913,7 @@ class CatalogSearch:
             semantic_rank,
             semantic_scores,
             protected_head_count,
+            confidence_gap,
         )
 
     def _candidate_attribute_stats(
@@ -1058,6 +1111,8 @@ class CatalogSearch:
             "semantic_specific_constraint_count": semantic_outcome.specificity,
             "semantic_protected_first": semantic_outcome.protected_first,
             "semantic_protected_head_count": semantic_outcome.protected_head_count,
+            "semantic_confidence_gap": semantic_outcome.confidence_gap,
+            "semantic_min_score_gap": self.semantic_min_score_gap,
             "semantic_gate_reason": semantic_outcome.gate_reason,
             "semantic_scores_available": bool(semantic_outcome.semantic_scores),
             "active_exclusion_count": sum(

@@ -70,6 +70,18 @@ python scripts/run_evaluation.py --tested-by "Your Name" --note "Describe the ch
 
 It writes the latest evaluator result to `results.json` and appends the compact metric summary to `outputs/evaluation_history.json`.
 
+To compare the Phase 2E confidence gate at three conservative values in one
+command, while preserving a separate result JSON for each run:
+
+```powershell
+$catalogPath = Resolve-Path "..\catalog.jsonl"
+python scripts/sweep_semantic_score_gap.py --catalog "$catalogPath" --tested-by "Your Name"
+```
+
+The default sweep tests score gaps `0.2`, `0.25`, `0.3`, `0.35`, and `0.4`; every result is
+appended to `outputs/evaluation_history.json` and saved under
+`outputs/semantic_score_gap_sweep/`.
+
 The public set is for development only. The final competition evaluation uses 800 separate private sessions. Never read public target labels from agent code, hard-code ASINs, or modify `evaluator/`, `data/public_set.jsonl`, or `data/catalog.jsonl`.
 
 ### Metrics
@@ -152,6 +164,7 @@ $env:LOCAL_RERANKER_ALLOW_DOWNLOAD="1"  # first download only
 $env:LOCAL_RERANKER_WEIGHT="0.35"
 $env:LOCAL_RERANKER_CANDIDATES="20"
 $env:LOCAL_RERANKER_MIN_CONSTRAINTS="2"
+$env:LOCAL_RERANKER_MIN_SCORE_GAP="0.5"
 python -m evaluator.local_evaluator --catalog "$catalogPath" --dataset data/public_set.jsonl --output results.semantic.json
 ```
 
@@ -167,6 +180,11 @@ For specific non-override requests, the semantic reranker also preserves a
 leading deterministic head of up to two candidates when each fully satisfies
 the required constraints. Only the remaining candidates are eligible for
 semantic promotion.
+
+The local CrossEncoder's raw scores are used only within a query: after the
+protected head, its best movable candidate must exceed the deterministic movable
+leader by `LOCAL_RERANKER_MIN_SCORE_GAP` (default `0.5`) before semantic fusion
+can change the order.
 
 An independent 18-case hard-negative benchmark is available in `tests/fixtures/semantic_ranking_cases.json`, with no target or candidate overlap against the public ground-truth ASINs. It compares the current L6 CrossEncoder, an L12 CrossEncoder, and a dense L12 MiniLM using `scripts/benchmark_semantic_models.py`. See `docs/testing/semantic-model-comparison.md` for methodology, results, limitations, and the reproduction command. The result supports gated L6 reranking for richly specified queries and dense MiniLM as a candidate route; it does not justify enabling either model for broad category-only public queries.
 

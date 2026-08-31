@@ -38,6 +38,7 @@ class Agent:
         enable_local_reranker: bool = True,
         semantic_weight: float | None = None,
         semantic_candidate_limit: int | None = None,
+        semantic_min_score_gap: float | None = None,
         enable_ranking_diagnostics: bool = False,
     ) -> None:
         self.catalog_path = Path(catalog_path)
@@ -69,12 +70,20 @@ class Agent:
             )
         except ValueError:
             semantic_min_specific_constraints = 2
+        if semantic_min_score_gap is None:
+            try:
+                semantic_min_score_gap = float(
+                    os.environ.get("LOCAL_RERANKER_MIN_SCORE_GAP", "0.5")
+                )
+            except ValueError:
+                semantic_min_score_gap = 0.5
         self.retrieval = CatalogSearch(
             self.catalog_path,
             semantic_reranker=semantic_reranker,
             semantic_weight=semantic_weight,
             semantic_candidate_limit=semantic_candidate_limit,
             semantic_min_specific_constraints=semantic_min_specific_constraints,
+            semantic_min_score_gap=semantic_min_score_gap,
             enable_ranking_diagnostics=enable_ranking_diagnostics,
         )
         self.connection = self.retrieval.connection
