@@ -508,7 +508,7 @@ class CatalogSearch:
 
     @staticmethod
     def _feature_clause_is_explicit(source_kind: str) -> bool:
-        return source_kind in {"required", "disclosed", "override", "llm_required"}
+        return source_kind in {"required", "disclosed", "override"}
 
     def feature_priority(self, feature_evidence: list[tuple[str, str]]) -> str:
         """Return required unless every supplied feature clause is catalog-common."""

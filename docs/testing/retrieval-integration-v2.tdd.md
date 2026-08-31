@@ -23,8 +23,8 @@ The integration plan was derived during this task rather than from a separate pl
 
 ## Validation
 
-- `DEEPSEEK_ENABLED=0 python3 -m unittest -v tests.test_agent tests.test_retrieval`: 35 tests passed.
-- `DEEPSEEK_ENABLED=0 python3 -m unittest discover -v`: 52 tests passed.
+- `python3 -m unittest -v tests.test_agent tests.test_retrieval`: 35 tests passed.
+- `python3 -m unittest discover -v`: 52 tests passed.
 - `python3 -m compileall -q starter tests scripts`: passed.
 - `git diff --check`: passed.
 - Python language-server diagnostics: no errors, warnings, or hints in the changed Python source and tests.
@@ -32,7 +32,7 @@ The integration plan was derived during this task rather than from a separate pl
 
 ## Evaluator evidence
 
-The 200-session public evaluator ran with `DEEPSEEK_ENABLED=0`, `--catalog ../catalog.jsonl`, and output under the operating-system temporary directory.
+The 200-session public evaluator ran with deterministic conversation parsing, `--catalog ../catalog.jsonl`, and output under the operating-system temporary directory.
 
 - Hit Rate@10: `1.000`
 - MRR: `0.623800`

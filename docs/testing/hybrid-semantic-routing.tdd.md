@@ -24,7 +24,7 @@ No RED or GREEN checkpoint commits were created because this project requires ex
 
 ## Evaluation evidence
 
-All runs used `DEEPSEEK_ENABLED=0`, the frozen outer catalog, and the official 200-session evaluator.
+All runs used deterministic conversation parsing, the frozen outer catalog, and the official 200-session evaluator.
 
 | Configuration | HR@10 | MRR | MTTC | Technical Score | Decision |
 |---|---:|---:|---:|---:|---|

@@ -17,7 +17,7 @@ The evaluator ends a session when its hidden target product appears in the Top 1
 The following result was produced on `feature/retrieval-integration-v2` with:
 
 ```bash
-DEEPSEEK_ENABLED=0 python3 -m evaluator.local_evaluator \
+python3 -m evaluator.local_evaluator \
   --catalog ../catalog.jsonl \
   --dataset data/public_set.jsonl \
   --output /private/tmp/jofc-retrieval-integration-v2.json

@@ -4,36 +4,25 @@ import copy
 import os
 from pathlib import Path
 
-from starter import state
-from starter.conversation_llm import (
-    ConversationLLM,
-    DeepSeekConversationLLM,
-    TokenUsage,
-)
 from starter.local_reranker import LocalCrossEncoderReranker
 from starter.retrieval import CatalogSearch, SemanticReranker
 from starter.state import (
     OVERRIDE_RE,
     SessionState,
-    apply_llm_state_delta,
     choose_clarification,
     record_response,
     response_message,
-    state_for_llm,
     update_state,
-    validated_llm_clarification,
 )
 
 
 class Agent:
-    """Hybrid shopping agent with deterministic retrieval and LLM-safe state."""
+    """Shopping agent with deterministic state and hybrid local retrieval."""
 
     def __init__(
         self,
         catalog_path: str | Path = "data/catalog.jsonl",
         *,
-        conversation_llm: ConversationLLM | None = None,
-        enable_llm: bool = True,
         semantic_reranker: SemanticReranker | None = None,
         enable_local_reranker: bool = True,
         semantic_weight: float | None = None,
@@ -88,14 +77,6 @@ class Agent:
         )
         self.connection = self.retrieval.connection
         self.sessions: dict[str, SessionState] = {}
-        if not enable_llm:
-            self.conversation_llm = None
-        elif conversation_llm is not None:
-            self.conversation_llm = conversation_llm
-        else:
-            self.conversation_llm = DeepSeekConversationLLM.from_environment(
-                project_root
-            )
 
     def reset(self, session_id: str, user_profile: dict) -> None:
         self.sessions[session_id] = SessionState.create(user_profile)
@@ -123,24 +104,9 @@ class Agent:
         except KeyError as error:
             raise RuntimeError("reset must be called before respond") from error
 
-        usage = TokenUsage()
         constraints_before = copy.deepcopy(state.constraints)
         override_seen_before = state.override_seen
-        handled = update_state(state, user_message)
-
-        llm_delta: dict | None = None
-        if self.conversation_llm is not None and not handled:
-            try:
-                llm_delta, interpretation_usage = self.conversation_llm.interpret(
-                    current_state=state_for_llm(state),
-                    last_asked_attribute=state.last_asked_attribute,
-                    customer_message=user_message,
-                )
-                usage += interpretation_usage
-            except Exception:
-                llm_delta = None
-        if llm_delta is not None:
-            apply_llm_state_delta(state, user_message, llm_delta)
+        update_state(state, user_message)
 
         constraints_changed = constraints_before != state.constraints
         override_applied = (
@@ -197,28 +163,6 @@ class Agent:
         )
         message = response_message(ask_attribute)
 
-        if self.conversation_llm is not None:
-            try:
-                clarification, clarification_usage = (
-                    self.conversation_llm.plan_clarification(
-                        current_state=state_for_llm(state),
-                        fallback_attribute=ask_attribute,
-                        candidate_summary=result.candidate_attribute_stats,
-                    )
-                )
-                usage += clarification_usage
-                validated = validated_llm_clarification(
-                    state,
-                    turn,
-                    ask_attribute,
-                    clarification,
-                    allow_attribute_override=True,
-                )
-                if validated is not None:
-                    ask_attribute, message = validated
-            except Exception:
-                pass
-
         record_response(state, message, ask_attribute, recommendations)
 
         return {
@@ -226,7 +170,7 @@ class Agent:
             "ask_attribute": ask_attribute,
             "recommendations": recommendations,
             "usage": {
-                "prompt_tokens": usage.prompt_tokens,
-                "completion_tokens": usage.completion_tokens,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
             },
         }

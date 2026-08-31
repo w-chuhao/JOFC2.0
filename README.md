@@ -35,9 +35,8 @@ Both `Test-Path` commands must return `True`, and the interpreter path must cont
 - `starter/state.py` - session state, rule extraction, overrides, exclusions, validation, and deterministic clarification fallback.
 - `starter/retrieval.py` - SQLite FTS5/BM25 retrieval, constraint-aware reranking, aliases, candidate statistics, and result diversification.
 - `starter/local_reranker.py` - optional local CrossEncoder adapter for specificity-gated reranking of filtered candidates.
-- `starter/conversation_llm.py` - optional, guarded DeepSeek planner. It never selects product IDs.
 - `evaluator/` - frozen local evaluator. Do not modify it.
-- `scripts/` - evaluation history, public-conversation tracing, and an opt-in DeepSeek connection check.
+- `scripts/` - evaluation history, public-conversation tracing, and semantic-model benchmarking.
 - `outputs/` - generated traces and evaluation history. It is intentionally ignored by Git.
 
 ## How to evaluate changes
@@ -46,7 +45,6 @@ Run the frozen evaluator after each meaningful retrieval or state-management cha
 
 ```powershell
 $catalogPath = Resolve-Path "..\catalog.jsonl"  # Replace with this machine's catalog location.
-$env:DEEPSEEK_ENABLED="0"
 python -m evaluator.local_evaluator --catalog "$catalogPath" --dataset data/public_set.jsonl --output results.json
 ```
 
@@ -54,7 +52,7 @@ On macOS/Linux, the equivalent command is:
 
 ```bash
 CATALOG_PATH="../catalog.jsonl" # Replace with this machine's catalog location.
-DEEPSEEK_ENABLED=0 python3 -m evaluator.local_evaluator \
+python3 -m evaluator.local_evaluator \
   --catalog "$CATALOG_PATH" \
   --dataset data/public_set.jsonl \
   --output results.json
@@ -101,7 +99,7 @@ Every evaluator session is isolated and follows this flow:
 customer message + current session state
         |
         v
-deterministic extraction (optional DeepSeek proposal for unresolved language)
+deterministic state extraction and override handling
         |
         v
 validated constraints, priorities, exclusions, and intent overrides
@@ -149,7 +147,7 @@ Intent-override language replaces stale constraints instead of accumulating cont
 
 `starter/retrieval.py` builds an in-memory SQLite FTS5 index over title, categories, features, details, store, and description. It combines field-aware BM25 routes, catalog aliases (for example, `handbag`/`purse`), and a constraint-aware reranker.
 
-Required constraints receive full scoring weight and clear excluded matches are removed; preferred constraints receive a smaller bonus. The Buying route applies required-attribute filtering only when at least the requested Top-K candidates survive, while Browsing retains the broader deterministic pool. Exact multi-word feature clues receive a phrase bonus, while a modest rating/popularity tie-break decays during cross-turn exploration. All BM25 candidate routes use inclusive term matching, rather than a strict Buying-only AND route, because the latter reduced the public evaluator's composite score. Broader Browsing requests also avoid repeating products shown earlier in the same session. The retriever returns aggregate category/material/color/style/brand/use-case/feature/size/budget counts for diagnostics and the optional planner, never as product recommendations.
+Required constraints receive full scoring weight and clear excluded matches are removed; preferred constraints receive a smaller bonus. The Buying route applies required-attribute filtering only when at least the requested Top-K candidates survive, while Browsing retains the broader deterministic pool. Exact multi-word feature clues receive a phrase bonus, while a modest rating/popularity tie-break decays during cross-turn exploration. All BM25 candidate routes use inclusive term matching, rather than a strict Buying-only AND route, because the latter reduced the public evaluator's composite score. Broader Browsing requests also avoid repeating products shown earlier in the same session. The retriever returns aggregate category/material/color/style/brand/use-case/feature/size/budget counts for diagnostics and deterministic clarification, never as product recommendations.
 
 ### Optional local semantic reranker
 
@@ -196,28 +194,6 @@ two required details or a richer set of preferred details.
 
 An independent 18-case hard-negative benchmark is available in `tests/fixtures/semantic_ranking_cases.json`, with no target or candidate overlap against the public ground-truth ASINs. It compares the current L6 CrossEncoder, an L12 CrossEncoder, and a dense L12 MiniLM using `scripts/benchmark_semantic_models.py`. See `docs/testing/semantic-model-comparison.md` for methodology, results, limitations, and the reproduction command. The result supports gated L6 reranking for richly specified queries and dense MiniLM as a candidate route; it does not justify enabling either model for broad category-only public queries.
 
-### Optional DeepSeek planner
-
-DeepSeek is not required for evaluation. When configured, it may propose a structured state update for language the rule extractor does not handle and a single clarification question. Code validates those proposals; retrieval, ranking, state mutation, and product IDs remain deterministic and local.
-
-Create an ignored `.env` file in the repository root:
-
-```text
-DEEPSEEK_KEY=your_key_here
-# Optional overrides
-# DEEPSEEK_MODEL=deepseek-v4-flash
-# DEEPSEEK_TIMEOUT_SECONDS=2
-# DEEPSEEK_ENABLED=1
-```
-
-Verify the connection with one tiny request (16-token response cap):
-
-```powershell
-python -m scripts.test_deepseek_connection
-```
-
-This check sends no catalog or evaluator data. It requires outbound HTTPS access to `api.deepseek.com`; the agent safely falls back to deterministic behaviour on missing credentials, invalid replies, timeouts, or network errors.
-
 ## Inspecting conversations and retrieval behaviour
 
 Trace an 80-session public-set sample (30 buying, 30 browsing, 10 intent override,
@@ -250,7 +226,7 @@ never passed into the agent or retriever.
 
 - Keep `starter/agent.py` as the evaluator-facing entry point.
 - Preserve session isolation: do not create cross-session user memory.
-- Add or update tests with changes to state, retrieval, response formatting, or external-client failure handling.
+- Add or update tests with changes to state, retrieval, response formatting, or local-model failure handling.
 - Keep API keys, generated outputs, and private data out of Git. `.env` and `outputs/` are ignored.
 - Inputs are pre-cleaned. Spelling correction and ASR-noise handling are out of scope for the competition path.
 

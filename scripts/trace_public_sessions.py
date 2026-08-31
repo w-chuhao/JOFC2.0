@@ -335,7 +335,6 @@ def main() -> None:
     trace = build_trace(
         Agent(
             args.catalog,
-            enable_llm=False,
             enable_ranking_diagnostics=True,
         ),
         selected_samples,
