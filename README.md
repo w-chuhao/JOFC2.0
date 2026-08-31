@@ -205,7 +205,8 @@ The trace includes evaluator prompts, responses, state constraints, priorities, 
 Trace runs also enable an offline-only ranking explanation for each returned
 candidate. `retrieval.ranking_candidates` records route ranks, raw BM25 scores,
 RRF contributions, constraint contributions, phrase bonuses, popularity,
-rating, and the reconciled final score. `ranking_comparison` compares the
+rating, deterministic-to-final rank movement, and—when the configured reranker
+exposes them—raw semantic scores and semantic ranks. `ranking_comparison` compares the
 public target with the rank-one result when the target is in the returned Top
 10. Normal evaluator runs leave this explanation disabled, and target IDs are
 never passed into the agent or retriever.

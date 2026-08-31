@@ -176,6 +176,16 @@ class FakeSemanticReranker:
         return list(self.ranking)
 
 
+class FakeScoredSemanticReranker:
+    def __init__(self, scores: list[float]) -> None:
+        self.scores = scores
+        self.calls: list[tuple[str, list[tuple[str, str]]]] = []
+
+    def score(self, query: str, documents: list[tuple[str, str]]) -> list[float]:
+        self.calls.append((query, documents))
+        return list(self.scores)
+
+
 class CatalogSearchTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary_directory = tempfile.TemporaryDirectory()
@@ -528,6 +538,45 @@ class CatalogSearchTest(unittest.TestCase):
         self.assertEqual(result.diagnostics["semantic_candidate_count"], 3)
         self.assertEqual(result.diagnostics["semantic_specific_constraint_count"], 2)
         self.assertTrue(result.diagnostics["semantic_protected_first"])
+        self.assertEqual(result.diagnostics["semantic_gate_reason"], "applied")
+
+    def test_semantic_diagnostics_capture_scores_and_rank_movement(self) -> None:
+        reranker = FakeScoredSemanticReranker([0.1, 0.9, 0.5])
+        semantic_search = CatalogSearch(
+            self.search.catalog_path,
+            semantic_reranker=reranker,
+            semantic_weight=10.0,
+            enable_ranking_diagnostics=True,
+        )
+        self.addCleanup(semantic_search.connection.close)
+
+        result = semantic_search.search(
+            query="green cotton casual shirt",
+            constraints=constraints(
+                category="shirts",
+                material="cotton",
+                color="green",
+            ),
+            top_k=3,
+            constraint_priorities={
+                "category": "required",
+                "material": "required",
+                "color": "required",
+            },
+            route="buying",
+        )
+
+        self.assertEqual(len(reranker.calls), 1)
+        self.assertTrue(result.diagnostics["semantic_scores_available"])
+        self.assertEqual(result.diagnostics["semantic_gate_reason"], "applied")
+        candidates = result.diagnostics["ranking_candidates"]
+        self.assertEqual(candidates[0]["semantic_score"], 0.1)
+        self.assertEqual(candidates[0]["semantic_rank"], 3)
+        self.assertEqual(candidates[0]["rank_movement"], 0)
+        self.assertEqual(
+            candidates[0]["required_constraint_coverage"],
+            {"category": 1.0, "material": 1.0, "color": 1.0},
+        )
 
     def test_semantic_reranker_is_skipped_for_underspecified_buying_route(self) -> None:
         reranker = FakeSemanticReranker(["SHOE_CANVAS_LEATHER_STORE"])

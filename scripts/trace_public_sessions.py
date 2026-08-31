@@ -91,6 +91,14 @@ def ranking_comparison(
         - float(target.get("total_score", 0.0))
     )
     explained_score_gap = sum(component_gaps.values())
+    target_semantic_score = target.get("semantic_score")
+    rank_one_semantic_score = rank_one.get("semantic_score")
+    semantic_score_gap = None
+    if isinstance(target_semantic_score, (int, float)) and isinstance(
+        rank_one_semantic_score,
+        (int, float),
+    ):
+        semantic_score_gap = rank_one_semantic_score - target_semantic_score
     return {
         "target_parent_asin": target_parent_asin,
         "target_rank": target.get("returned_rank"),
@@ -101,6 +109,13 @@ def ranking_comparison(
         "explained_score_gap": explained_score_gap,
         "unexplained_score_gap": total_score_gap - explained_score_gap,
         "component_gaps": component_gaps,
+        "semantic_evidence": {
+            "target_rank": target.get("semantic_rank"),
+            "rank_one_rank": rank_one.get("semantic_rank"),
+            "target_score": target_semantic_score,
+            "rank_one_score": rank_one_semantic_score,
+            "score_gap": semantic_score_gap,
+        },
     }
 
 

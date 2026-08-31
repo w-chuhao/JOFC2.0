@@ -151,6 +151,8 @@ class TracePublicSessionsTest(unittest.TestCase):
                     "feature_phrase_bonus": 0.0,
                     "popularity_contribution": 0.5,
                     "rating_contribution": 0.1,
+                    "semantic_rank": 1,
+                    "semantic_score": 2.5,
                 },
                 {
                     "parent_asin": "TARGET",
@@ -164,6 +166,8 @@ class TracePublicSessionsTest(unittest.TestCase):
                     "feature_phrase_bonus": 0.0,
                     "popularity_contribution": 0.15,
                     "rating_contribution": 0.05,
+                    "semantic_rank": 2,
+                    "semantic_score": 1.5,
                 },
             ]
         }
@@ -179,6 +183,8 @@ class TracePublicSessionsTest(unittest.TestCase):
             comparison["component_gaps"]["popularity_contribution"],
             0.35,
         )
+        self.assertEqual(comparison["semantic_evidence"]["target_rank"], 2)
+        self.assertAlmostEqual(comparison["semantic_evidence"]["score_gap"], 1.0)
 
 
 if __name__ == "__main__":

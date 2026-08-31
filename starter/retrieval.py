@@ -159,6 +159,18 @@ class SemanticReranker(Protocol):
     def rank(self, query: str, documents: list[tuple[str, str]]) -> list[str]: ...
 
 
+@dataclass(frozen=True)
+class SemanticRerankOutcome:
+    ranked_ids: list[str]
+    reranked: bool
+    candidate_count: int
+    specificity: int
+    protected_first: bool
+    gate_reason: str
+    semantic_ranks: dict[str, int]
+    semantic_scores: dict[str, float]
+
+
 def _text(value: object) -> str:
     if value is None:
         return ""
@@ -675,21 +687,33 @@ class CatalogSearch:
         constraints: dict,
         priorities: dict[str, str],
     ) -> bool:
+        coverage = self._required_constraint_coverage(
+            product,
+            constraints,
+            priorities,
+        )
+        return bool(coverage) and all(value >= 0.5 for value in coverage.values())
+
+    def _required_constraint_coverage(
+        self,
+        product: ProductDocument,
+        constraints: dict,
+        priorities: dict[str, str],
+    ) -> dict[str, float]:
         required = [
             attribute
             for attribute in ATTRIBUTE_WEIGHTS
             if constraints.get(attribute) is not None
             and priorities.get(attribute) == "required"
         ]
-        return bool(required) and all(
-            self._attribute_coverage(
+        return {
+            attribute: self._attribute_coverage(
                 product,
                 attribute,
                 constraints[attribute],
             )
-            >= 0.5
             for attribute in required
-        )
+        }
 
     def _semantic_rerank(
         self,
@@ -697,14 +721,27 @@ class CatalogSearch:
         ranked_ids: list[str],
         constraints: dict,
         priorities: dict[str, str],
-    ) -> tuple[list[str], bool, int, int, bool]:
+    ) -> SemanticRerankOutcome:
         specificity = self._semantic_specific_constraint_count(constraints)
-        if (
-            self.semantic_reranker is None
-            or not ranked_ids
-            or specificity < self.semantic_min_specific_constraints
-        ):
-            return ranked_ids, False, 0, specificity, False
+        if self.semantic_reranker is None:
+            return SemanticRerankOutcome(
+                ranked_ids, False, 0, specificity, False, "no_reranker", {}, {}
+            )
+        if not ranked_ids:
+            return SemanticRerankOutcome(
+                ranked_ids, False, 0, specificity, False, "no_candidates", {}, {}
+            )
+        if specificity < self.semantic_min_specific_constraints:
+            return SemanticRerankOutcome(
+                ranked_ids,
+                False,
+                0,
+                specificity,
+                False,
+                "insufficient_specificity",
+                {},
+                {},
+            )
 
         candidate_ids = ranked_ids[: self.semantic_candidate_limit]
         documents = [
@@ -712,9 +749,37 @@ class CatalogSearch:
             for parent_asin in candidate_ids
         ]
         try:
-            proposed_order = self.semantic_reranker.rank(query, documents)
+            score = getattr(self.semantic_reranker, "score", None)
+            if callable(score):
+                raw_scores = [float(value) for value in score(query, documents)]
+                if len(raw_scores) != len(documents):
+                    raise ValueError(
+                        "semantic reranker must return one score per document"
+                    )
+                if any(not math.isfinite(value) for value in raw_scores):
+                    raise ValueError("semantic reranker scores must be finite")
+                proposed_order = [
+                    parent_asin
+                    for (parent_asin, _), _ in sorted(
+                        zip(documents, raw_scores, strict=True),
+                        key=lambda item: -item[1],
+                    )
+                ]
+                semantic_scores = dict(zip(candidate_ids, raw_scores, strict=True))
+            else:
+                proposed_order = self.semantic_reranker.rank(query, documents)
+                semantic_scores = {}
         except Exception:
-            return ranked_ids, False, 0, specificity, False
+            return SemanticRerankOutcome(
+                ranked_ids,
+                False,
+                0,
+                specificity,
+                False,
+                "reranker_failure",
+                {},
+                {},
+            )
 
         candidate_set = set(candidate_ids)
         semantic_order: list[str] = []
@@ -724,7 +789,16 @@ class CatalogSearch:
                 seen.add(parent_asin)
                 semantic_order.append(parent_asin)
         if not semantic_order:
-            return ranked_ids, False, 0, specificity, False
+            return SemanticRerankOutcome(
+                ranked_ids,
+                False,
+                0,
+                specificity,
+                False,
+                "empty_semantic_order",
+                {},
+                semantic_scores,
+            )
         semantic_order.extend(
             parent_asin for parent_asin in candidate_ids if parent_asin not in seen
         )
@@ -757,12 +831,15 @@ class CatalogSearch:
             + fused
             + ranked_ids[len(candidate_ids) :]
         )
-        return (
+        return SemanticRerankOutcome(
             fused_ids,
             True,
             len(candidate_ids),
             specificity,
             protected_first,
+            "applied",
+            semantic_rank,
+            semantic_scores,
         )
 
     def _candidate_attribute_stats(
@@ -892,13 +969,13 @@ class CatalogSearch:
         deterministic_ranks = {
             parent_asin: rank for rank, parent_asin in enumerate(ranked_ids, start=1)
         }
-        (
+        semantic_outcome = self._semantic_rerank(
+            query,
             ranked_ids,
-            semantic_reranked,
-            semantic_candidate_count,
-            semantic_specific_constraint_count,
-            semantic_protected_first,
-        ) = self._semantic_rerank(query, ranked_ids, constraints, priorities)
+            constraints,
+            priorities,
+        )
+        ranked_ids = semantic_outcome.ranked_ids
         recommendation_ids = [
             parent_asin
             for parent_asin in ranked_ids
@@ -924,6 +1001,19 @@ class CatalogSearch:
                         "parent_asin": parent_asin,
                         "returned_rank": returned_rank,
                         "deterministic_rank": deterministic_ranks[parent_asin],
+                        "rank_movement": returned_rank
+                        - deterministic_ranks[parent_asin],
+                        "semantic_rank": semantic_outcome.semantic_ranks.get(
+                            parent_asin
+                        ),
+                        "semantic_score": semantic_outcome.semantic_scores.get(
+                            parent_asin
+                        ),
+                        "required_constraint_coverage": self._required_constraint_coverage(
+                            product,
+                            constraints,
+                            priorities,
+                        ),
                         "title": product.title,
                         "categories": product.categories,
                         **score_breakdown,
@@ -940,10 +1030,12 @@ class CatalogSearch:
             "strategy": policy.strategy,
             "popularity_weight": popularity_weight,
             "required_filter_attributes": required_filter_attributes,
-            "semantic_reranked": semantic_reranked,
-            "semantic_candidate_count": semantic_candidate_count,
-            "semantic_specific_constraint_count": semantic_specific_constraint_count,
-            "semantic_protected_first": semantic_protected_first,
+            "semantic_reranked": semantic_outcome.reranked,
+            "semantic_candidate_count": semantic_outcome.candidate_count,
+            "semantic_specific_constraint_count": semantic_outcome.specificity,
+            "semantic_protected_first": semantic_outcome.protected_first,
+            "semantic_gate_reason": semantic_outcome.gate_reason,
+            "semantic_scores_available": bool(semantic_outcome.semantic_scores),
             "active_exclusion_count": sum(
                 len(values) for values in exclusions.values()
             ),
