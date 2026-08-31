@@ -159,6 +159,10 @@ Remove `LOCAL_RERANKER_ALLOW_DOWNLOAD` after caching the model. Official scoring
 
 The original route-only experiment did not justify enabling this path: weight `0.35` over 50 broad Browsing candidates reduced MRR from `0.623800` to `0.585181`. On the original local-main base, specificity gating plus required-match rank-1 protection produced MRR `0.624593` and Technical Score `0.872678`, while an independent 18-query Agent check improved Hit@10 from `0.5000` to `0.5556` and MRR from `0.173920` to `0.218364`. After merging the newer `origin/main` retrieval changes, the current combined branch scored MRR `0.624008`/Technical Score `0.872502` deterministically and MRR `0.623704`/Technical Score `0.872411` with guarded L6. The current public run therefore favors keeping the model disabled. The earlier guarded run also made 68 local model calls and spent about 13.2 seconds in CPU inference, so the model remains opt-in research rather than a required submission dependency.
 
+Once a shopper changes their intent, semantic reranking is disabled for the rest
+of that session. The deterministic constrained ranker remains active, avoiding
+semantic promotion based on stale pre-override phrasing.
+
 An independent 18-case hard-negative benchmark is available in `tests/fixtures/semantic_ranking_cases.json`, with no target or candidate overlap against the public ground-truth ASINs. It compares the current L6 CrossEncoder, an L12 CrossEncoder, and a dense L12 MiniLM using `scripts/benchmark_semantic_models.py`. See `docs/testing/semantic-model-comparison.md` for methodology, results, limitations, and the reproduction command. The result supports gated L6 reranking for richly specified queries and dense MiniLM as a candidate route; it does not justify enabling either model for broad category-only public queries.
 
 ### Optional DeepSeek planner

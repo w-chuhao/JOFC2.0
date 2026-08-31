@@ -540,6 +540,56 @@ class CatalogSearchTest(unittest.TestCase):
         self.assertTrue(result.diagnostics["semantic_protected_first"])
         self.assertEqual(result.diagnostics["semantic_gate_reason"], "applied")
 
+    def test_caller_can_disable_semantic_reranking(self) -> None:
+        baseline = self.search.search(
+            query="green cotton casual shirt",
+            constraints=constraints(
+                category="shirts",
+                material="cotton",
+                color="green",
+            ),
+            top_k=3,
+            constraint_priorities={
+                "category": "required",
+                "material": "required",
+                "color": "required",
+            },
+            route="buying",
+        )
+        reranker = FakeSemanticReranker(
+            ["AAA_TIE_LOW", "ZZZ_TIE_POPULAR", "MMM_TIE_MIDDLE"]
+        )
+        semantic_search = CatalogSearch(
+            self.search.catalog_path,
+            semantic_reranker=reranker,
+            semantic_weight=10.0,
+        )
+        self.addCleanup(semantic_search.connection.close)
+
+        result = semantic_search.search(
+            query="green cotton casual shirt",
+            constraints=constraints(
+                category="shirts",
+                material="cotton",
+                color="green",
+            ),
+            top_k=3,
+            constraint_priorities={
+                "category": "required",
+                "material": "required",
+                "color": "required",
+            },
+            route="buying",
+            semantic_rerank_allowed=False,
+        )
+
+        self.assertEqual(result.recommendation_ids, baseline.recommendation_ids)
+        self.assertEqual(reranker.calls, [])
+        self.assertFalse(result.diagnostics["semantic_reranked"])
+        self.assertEqual(
+            result.diagnostics["semantic_gate_reason"], "disabled_by_caller"
+        )
+
     def test_semantic_diagnostics_capture_scores_and_rank_movement(self) -> None:
         reranker = FakeScoredSemanticReranker([0.1, 0.9, 0.5])
         semantic_search = CatalogSearch(

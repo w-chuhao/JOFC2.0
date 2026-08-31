@@ -408,6 +408,35 @@ class AgentConversationTest(unittest.TestCase):
         self.assertEqual(response["recommendations"][0]["parent_asin"], "DRESS_RED")
         self.assertEqual(reranker.calls, 1)
 
+    def test_override_disables_semantic_reranking_for_the_rest_of_the_session(self) -> None:
+        reranker = FakeSemanticReranker(["DRESS_RED", "SHOE_BLUE", "SHOE_BLACK"])
+        semantic_agent = Agent(
+            self.catalog_path,
+            enable_llm=False,
+            semantic_reranker=reranker,
+            semantic_weight=10.0,
+        )
+        self.addCleanup(semantic_agent.connection.close)
+        semantic_agent.reset("semantic-override", {})
+
+        semantic_agent.respond(
+            "semantic-override",
+            "I need a red cotton formal dress with soft cotton fabric.",
+            1,
+            3,
+        )
+        semantic_agent.respond(
+            "semantic-override",
+            "Actually, I need black leather walking shoes.",
+            2,
+            3,
+        )
+
+        self.assertEqual(reranker.calls, 1)
+        diagnostics = semantic_agent.sessions["semantic-override"].last_search_diagnostics
+        self.assertFalse(diagnostics["semantic_reranked"])
+        self.assertEqual(diagnostics["semantic_gate_reason"], "disabled_by_caller")
+
     def test_llm_interprets_when_deterministic_parser_finds_nothing(self) -> None:
         fake_llm = FakeConversationLLM(
             interpretation={

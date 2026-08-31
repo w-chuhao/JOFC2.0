@@ -721,8 +721,21 @@ class CatalogSearch:
         ranked_ids: list[str],
         constraints: dict,
         priorities: dict[str, str],
+        *,
+        semantic_rerank_allowed: bool,
     ) -> SemanticRerankOutcome:
         specificity = self._semantic_specific_constraint_count(constraints)
+        if not semantic_rerank_allowed:
+            return SemanticRerankOutcome(
+                ranked_ids,
+                False,
+                0,
+                specificity,
+                False,
+                "disabled_by_caller",
+                {},
+                {},
+            )
         if self.semantic_reranker is None:
             return SemanticRerankOutcome(
                 ranked_ids, False, 0, specificity, False, "no_reranker", {}, {}
@@ -891,6 +904,7 @@ class CatalogSearch:
         excluded_constraints: dict[str, set[str]] | None = None,
         feature_evidence: list[tuple[str, str]] | None = None,
         route: str = "browsing",
+        semantic_rerank_allowed: bool = True,
     ) -> SearchResult:
         """Return ranked IDs and statistics using current validated constraints.
 
@@ -974,6 +988,7 @@ class CatalogSearch:
             ranked_ids,
             constraints,
             priorities,
+            semantic_rerank_allowed=semantic_rerank_allowed,
         )
         ranked_ids = semantic_outcome.ranked_ids
         recommendation_ids = [

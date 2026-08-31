@@ -172,6 +172,7 @@ class Agent:
             excluded_constraints=state.excluded_constraints,
             feature_evidence=feature_evidence,
             route=route,
+            semantic_rerank_allowed=not state.override_seen,
         )
         state.last_search_diagnostics = result.diagnostics
         recommendations = [
