@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import unittest
 
-from scripts.trace_public_sessions import build_trace, parse_sample_ids, select_samples
+from scripts.trace_public_sessions import (
+    build_trace,
+    parse_sample_ids,
+    ranking_comparison,
+    select_samples,
+)
 
 
 def sample(sample_id: str, scenario: str, target: str) -> dict:
@@ -130,6 +135,50 @@ class TracePublicSessionsTest(unittest.TestCase):
             parse_sample_ids(",")
         with self.assertRaisesRegex(ValueError, "duplicates"):
             parse_sample_ids("public_0001,public_0001")
+
+    def test_ranking_comparison_reports_rank_one_advantages(self) -> None:
+        diagnostics = {
+            "ranking_candidates": [
+                {
+                    "parent_asin": "FIRST",
+                    "returned_rank": 1,
+                    "total_score": 7.0,
+                    "retrieval_score": 0.4,
+                    "budget_adjustment": 0.0,
+                    "attribute_contributions": {
+                        "category": [{"contribution": 6.0}],
+                    },
+                    "feature_phrase_bonus": 0.0,
+                    "popularity_contribution": 0.5,
+                    "rating_contribution": 0.1,
+                },
+                {
+                    "parent_asin": "TARGET",
+                    "returned_rank": 2,
+                    "total_score": 6.5,
+                    "retrieval_score": 0.3,
+                    "budget_adjustment": 0.0,
+                    "attribute_contributions": {
+                        "category": [{"contribution": 6.0}],
+                    },
+                    "feature_phrase_bonus": 0.0,
+                    "popularity_contribution": 0.15,
+                    "rating_contribution": 0.05,
+                },
+            ]
+        }
+
+        comparison = ranking_comparison(diagnostics, "TARGET")
+
+        self.assertIsNotNone(comparison)
+        self.assertEqual(comparison["target_rank"], 2)
+        self.assertEqual(comparison["rank_one_parent_asin"], "FIRST")
+        self.assertAlmostEqual(comparison["total_score_gap"], 0.5)
+        self.assertAlmostEqual(comparison["unexplained_score_gap"], 0.0)
+        self.assertAlmostEqual(
+            comparison["component_gaps"]["popularity_contribution"],
+            0.35,
+        )
 
 
 if __name__ == "__main__":

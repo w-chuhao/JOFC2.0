@@ -195,6 +195,58 @@ class CatalogSearchTest(unittest.TestCase):
         self.assertEqual(self.search.semantic_candidate_limit, 20)
         self.assertEqual(self.search.semantic_min_specific_constraints, 2)
 
+    def test_ranking_diagnostics_are_opt_in(self) -> None:
+        result = self.search.search(
+            query="black leather shoes",
+            constraints=constraints(category="shoes", material="leather"),
+            top_k=3,
+        )
+
+        self.assertNotIn("ranking_candidates", result.diagnostics)
+
+    def test_ranking_diagnostics_explain_returned_candidate_scores(self) -> None:
+        expected = self.search.search(
+            query="black leather shoes",
+            constraints=constraints(category="shoes", material="leather"),
+            top_k=3,
+        ).recommendation_ids
+        self.search.enable_ranking_diagnostics = True
+
+        result = self.search.search(
+            query="black leather shoes",
+            constraints=constraints(category="shoes", material="leather"),
+            top_k=3,
+        )
+
+        self.assertEqual(result.recommendation_ids, expected)
+        candidates = result.diagnostics["ranking_candidates"]
+        self.assertEqual(
+            [item["parent_asin"] for item in candidates],
+            result.recommendation_ids,
+        )
+        first = candidates[0]
+        self.assertEqual(first["returned_rank"], 1)
+        self.assertTrue(first["route_signals"])
+        self.assertIn("bm25_score", first["route_signals"][0])
+        self.assertAlmostEqual(
+            first["retrieval_score"],
+            sum(item["rrf_contribution"] for item in first["route_signals"]),
+        )
+        attribute_total = sum(
+            item["contribution"]
+            for items in first["attribute_contributions"].values()
+            for item in items
+        )
+        explained_total = (
+            first["retrieval_score"]
+            + first["budget_adjustment"]
+            + attribute_total
+            + first["feature_phrase_bonus"]
+            + first["popularity_contribution"]
+            + first["rating_contribution"]
+        )
+        self.assertAlmostEqual(first["total_score"], explained_total)
+
     def test_category_constraint_ranks_matching_product_above_other_category(self) -> None:
         results = self.search.search(
             query="black leather",

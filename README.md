@@ -202,6 +202,14 @@ python -m scripts.trace_public_sessions --sample-ids public_0001,public_0014
 
 The trace includes evaluator prompts, responses, state constraints, priorities, exclusions, and retrieval diagnostics. Use it to investigate failure patterns; do not use hidden target labels in runtime agent logic.
 
+Trace runs also enable an offline-only ranking explanation for each returned
+candidate. `retrieval.ranking_candidates` records route ranks, raw BM25 scores,
+RRF contributions, constraint contributions, phrase bonuses, popularity,
+rating, and the reconciled final score. `ranking_comparison` compares the
+public target with the rank-one result when the target is in the returned Top
+10. Normal evaluator runs leave this explanation disabled, and target IDs are
+never passed into the agent or retriever.
+
 ## Development rules
 
 - Keep `starter/agent.py` as the evaluator-facing entry point.

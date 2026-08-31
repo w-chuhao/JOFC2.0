@@ -32,6 +32,78 @@ DEFAULT_SCENARIO_COUNTS = {
 DEFAULT_OUTPUT = Path("outputs/public_prompt_trace.json")
 
 
+def _attribute_contribution_total(candidate: dict[str, Any]) -> float:
+    contributions = candidate.get("attribute_contributions")
+    if not isinstance(contributions, dict):
+        return 0.0
+    return sum(
+        float(item.get("contribution", 0.0))
+        for items in contributions.values()
+        if isinstance(items, list)
+        for item in items
+        if isinstance(item, dict)
+    )
+
+
+def ranking_comparison(
+    retrieval_diagnostics: object,
+    target_parent_asin: str,
+) -> dict[str, Any] | None:
+    """Compare a public target with rank one using opt-in score diagnostics."""
+    if not isinstance(retrieval_diagnostics, dict):
+        return None
+    candidates = retrieval_diagnostics.get("ranking_candidates")
+    if not isinstance(candidates, list):
+        return None
+    valid_candidates = [item for item in candidates if isinstance(item, dict)]
+    rank_one = next(
+        (item for item in valid_candidates if item.get("returned_rank") == 1),
+        None,
+    )
+    target = next(
+        (
+            item
+            for item in valid_candidates
+            if item.get("parent_asin") == target_parent_asin
+        ),
+        None,
+    )
+    if rank_one is None or target is None:
+        return None
+
+    component_names = (
+        "retrieval_score",
+        "budget_adjustment",
+        "feature_phrase_bonus",
+        "popularity_contribution",
+        "rating_contribution",
+    )
+    component_gaps = {
+        name: float(rank_one.get(name, 0.0)) - float(target.get(name, 0.0))
+        for name in component_names
+    }
+    component_gaps["attribute_contribution"] = (
+        _attribute_contribution_total(rank_one)
+        - _attribute_contribution_total(target)
+    )
+    total_score_gap = (
+        float(rank_one.get("total_score", 0.0))
+        - float(target.get("total_score", 0.0))
+    )
+    explained_score_gap = sum(component_gaps.values())
+    return {
+        "target_parent_asin": target_parent_asin,
+        "target_rank": target.get("returned_rank"),
+        "rank_one_parent_asin": rank_one.get("parent_asin"),
+        "rank_one_total_score": rank_one.get("total_score"),
+        "target_total_score": target.get("total_score"),
+        "total_score_gap": total_score_gap,
+        "explained_score_gap": explained_score_gap,
+        "unexplained_score_gap": total_score_gap - explained_score_gap,
+        "component_gaps": component_gaps,
+    }
+
+
 def select_samples(
     samples: list[dict[str, Any]],
     per_scenario: int | dict[str, int],
@@ -116,6 +188,7 @@ def trace_session(
                 if values
             },
         }
+        retrieval_diagnostics = getattr(state, "last_search_diagnostics", {})
         turns.append(
             {
                 "turn": turn,
@@ -128,7 +201,11 @@ def trace_session(
                 "usage": response.get("usage"),
                 "agent_error": agent_error,
                 "state": state_snapshot,
-                "retrieval": getattr(state, "last_search_diagnostics", {}),
+                "retrieval": retrieval_diagnostics,
+                "ranking_comparison": ranking_comparison(
+                    retrieval_diagnostics,
+                    target,
+                ),
             }
         )
         if scored_hit:
@@ -241,7 +318,11 @@ def main() -> None:
 
     catalog_ids, categories, products = catalog_index(args.catalog)
     trace = build_trace(
-        Agent(args.catalog, enable_llm=False),
+        Agent(
+            args.catalog,
+            enable_llm=False,
+            enable_ranking_diagnostics=True,
+        ),
         selected_samples,
         catalog_ids,
         categories,

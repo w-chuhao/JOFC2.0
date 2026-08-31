@@ -38,6 +38,7 @@ class Agent:
         enable_local_reranker: bool = True,
         semantic_weight: float | None = None,
         semantic_candidate_limit: int | None = None,
+        enable_ranking_diagnostics: bool = False,
     ) -> None:
         self.catalog_path = Path(catalog_path)
         project_root = Path(__file__).resolve().parents[1]
@@ -74,6 +75,7 @@ class Agent:
             semantic_weight=semantic_weight,
             semantic_candidate_limit=semantic_candidate_limit,
             semantic_min_specific_constraints=semantic_min_specific_constraints,
+            enable_ranking_diagnostics=enable_ranking_diagnostics,
         )
         self.connection = self.retrieval.connection
         self.sessions: dict[str, SessionState] = {}
